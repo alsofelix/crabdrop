@@ -1,0 +1,32 @@
+[package]
+name = "crabdrop"
+version = "0.1.0"
+description = "An S3 visual tool"
+authors = ["Felix"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "crabdrop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-fs = "2.4.5"
+aws-sdk-s3 = "1.120.0"
+aws-config = "1.8.12"
+tokio = { version = "1.49.0", features = ["full"] }
+dirs = "6.0.0"
+toml = "0.9.11"
+
