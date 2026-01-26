@@ -1,6 +1,5 @@
 use dirs;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -22,6 +21,29 @@ pub struct CredentialsConfig {
     pub secret_access_key: String,
 }
 
+impl Config {
+    pub fn load() -> anyhow::Result<Config> {
+        let config_path = ensure_config_existance()?;
+        let content = std::fs::read_to_string(config_path)?;
+        let config: Config = toml::from_str(&content)?;
+
+        Ok(config)
+    }
+
+    pub fn to_toml(&self) -> anyhow::Result<String> {
+        Ok(toml::to_string_pretty(self)?)
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let content = self.to_toml()?;
+        let config_path = get_config_path();
+
+        std::fs::write(config_path, content)?;
+
+        Ok(())
+    }
+}
+
 fn get_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap()
@@ -41,13 +63,4 @@ fn ensure_config_existance() -> anyhow::Result<PathBuf> {
     }
 
     Ok(config_path)
-}
-pub fn load_config() -> anyhow::Result<Config> {
-    let config_path = ensure_config_existance()?;
-
-    let content = fs::read_to_string(config_path)?;
-
-    let config: Config = toml::from_str(&content)?;
-
-    Ok(config)
 }
