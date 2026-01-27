@@ -43,10 +43,10 @@ async function loadFiles(prefix: string): Promise<void> {
     }
 }
 
-async function uploadFile(localPath: string, key: string): Promise<void> {
+async function uploadPath(localPath: string, targetPrefix: string): Promise<void> {
     try {
-        await invoke("upload_file", {key, path: localPath});
-        console.log("Uploaded:", key);
+        await invoke("upload_path", {localPath, targetPrefix});
+        console.log("Uploaded:", targetPrefix);
     } catch (e) {
         console.error("Upload failed:", e);
     }
@@ -202,10 +202,10 @@ function setupDropZone(): void {
 async function handleFileDrop(paths: string[]): Promise<void> {
     for (const path of paths) {
         const filename = getFilenameFromPath(path);
-        const key = currentPath + filename;
-        await uploadFile(path, key);
+        const targetPrefix = currentPath + filename;
+        await uploadPath(path, targetPrefix);
     }
-    loadFiles(currentPath);
+    await loadFiles(currentPath);
 }
 
 function setupFolderModal() {
@@ -230,7 +230,7 @@ function setupFolderModal() {
 
         const key = currentPath + name + "/";
         try {
-            await invoke("upload_folder", { key });
+            await invoke("upload_folder", {key});
             modal.classList.add("hidden");
             await loadFiles(currentPath);
         } catch (e) {

@@ -19,23 +19,6 @@ pub async fn list_files(
 }
 
 #[tauri::command]
-pub async fn upload_file(
-    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
-    key: &str,
-    path: &str,
-) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
-
-    let file = fs::read(Path::new(path)).map_err(|e1| e1.to_string())?;
-
-    client
-        .upload_file(key, file)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn check_config(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<bool, String> {
     let guard = state.lock().await;
     Ok(guard.is_some())
@@ -94,4 +77,46 @@ pub async fn upload_folder(
 
     client.upload_folder(key).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn upload_path(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    local_path: String,
+    target_prefix: String,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    let path = Path::new(&local_path);
+
+    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+
+    if metadata.is_file() {
+        let file = fs::read(path).map_err(|e1| e1.to_string())?;
+        client
+            .upload_file(&target_prefix, file)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    } else if metadata.is_dir() {
+        for i in walkdir::WalkDir::new(path) {
+            let entry = i.map_err(|e| e.to_string())?;
+
+            if entry.file_type().is_file() {
+                let file_path = entry.path();
+                let relative = file_path.strip_prefix(path).map_err(|e| e.to_string())?;
+                let key = format!("{}/{}", target_prefix, relative.to_string_lossy());
+
+                let data = fs::read(file_path).map_err(|e| e.to_string())?;
+                client
+                    .upload_file(&key, data)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    } else {
+        Err("Unable to add file".to_string())
+    }
 }

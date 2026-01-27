@@ -21,12 +21,12 @@ pub fn run() {
         .manage(client_state)
         .invoke_handler(tauri::generate_handler![
             commands::list_files,
-            commands::upload_file,
             commands::check_config,
             commands::save_config,
             commands::test_connection,
             commands::get_config,
-            commands::upload_folder
+            commands::upload_folder,
+            commands::upload_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
