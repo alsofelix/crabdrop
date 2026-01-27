@@ -42,6 +42,13 @@ impl Config {
 
         Ok(())
     }
+
+    pub fn is_valid(&self) -> bool {
+        !self.storage.bucket.is_empty()
+            && !self.storage.region.is_empty()
+            && !self.credentials.access_key_id.is_empty()
+            && !self.credentials.secret_access_key.is_empty()
+    }
 }
 
 fn get_config_path() -> PathBuf {
