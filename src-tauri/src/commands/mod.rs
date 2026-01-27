@@ -1,7 +1,6 @@
 use crate::config::Config;
 use crate::s3::S3Client;
 use crate::{config, types};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
@@ -93,9 +92,8 @@ pub async fn upload_path(
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
 
     if metadata.is_file() {
-        let file = fs::read(path).map_err(|e1| e1.to_string())?;
         client
-            .upload_file(&target_prefix, file)
+            .det_upload(&target_prefix, path)
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -108,9 +106,8 @@ pub async fn upload_path(
                 let relative = file_path.strip_prefix(path).map_err(|e| e.to_string())?;
                 let key = format!("{}/{}", target_prefix, relative.to_string_lossy());
 
-                let data = fs::read(file_path).map_err(|e| e.to_string())?;
                 client
-                    .upload_file(&key, data)
+                    .det_upload(&key, file_path)
                     .await
                     .map_err(|e| e.to_string())?;
             }

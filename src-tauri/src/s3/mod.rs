@@ -7,7 +7,8 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
-use tauri::ipc::RuntimeCapability;
+
+const THRESHOLD: u64 = 100 * 1024 * 1024;
 
 pub struct S3Client {
     client: Client,
@@ -75,6 +76,19 @@ impl S3Client {
         }
 
         Ok(vector)
+    }
+
+    pub async fn det_upload(&self, key: &str, path: &Path) -> anyhow::Result<()> {
+        let size = std::fs::metadata(path)?.len();
+
+        if size < THRESHOLD {
+            let data = std::fs::read(path)?;
+            self.upload_file(key, data).await?;
+        } else {
+            self.upload_file_multipart(key, path).await?;
+        }
+
+        Ok(())
     }
 
     pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
