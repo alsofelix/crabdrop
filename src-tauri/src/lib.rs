@@ -26,6 +26,7 @@ pub fn run() {
             commands::save_config,
             commands::test_connection,
             commands::get_config,
+            commands::upload_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

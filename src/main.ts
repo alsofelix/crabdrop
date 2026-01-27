@@ -57,6 +57,7 @@ async function init() {
     setupDropZone();
     setUpSettingsButton();
     setUpConnScreen();
+    setupFolderModal();
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
@@ -207,12 +208,49 @@ async function handleFileDrop(paths: string[]): Promise<void> {
     loadFiles(currentPath);
 }
 
+function setupFolderModal() {
+    const modal = document.getElementById("folder-modal")!;
+    const input = document.getElementById("folder-name") as HTMLInputElement;
+    const btnCreate = document.getElementById("folder-create")!;
+    const btnCancel = document.getElementById("folder-cancel")!;
+
+    document.getElementById("btn-new-folder")?.addEventListener("click", () => {
+        input.value = "";
+        modal.classList.remove("hidden");
+        input.focus();
+    });
+
+    btnCancel.addEventListener("click", () => {
+        modal.classList.add("hidden");
+    });
+
+    btnCreate.addEventListener("click", async () => {
+        const name = input.value.trim();
+        if (!name) return;
+
+        const key = currentPath + name + "/";
+        try {
+            await invoke("upload_folder", { key });
+            modal.classList.add("hidden");
+            await loadFiles(currentPath);
+        } catch (e) {
+            console.error("Failed to create folder:", e);
+        }
+    });
+
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") btnCreate.click();
+        if (e.key === "Escape") btnCancel.click();
+    });
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) modal.classList.add("hidden");
+    });
+}
+
 function setupEventListeners(): void {
     document.getElementById("btn-back")?.addEventListener("click", navigateUp);
     document.getElementById("btn-refresh")?.addEventListener("click", () => loadFiles(currentPath));
-    document.getElementById("btn-new-folder")?.addEventListener("click", () => {
-        console.log("New folder clicked");
-    });
 }
 
 window.addEventListener("DOMContentLoaded", () => {

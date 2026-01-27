@@ -83,3 +83,15 @@ pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> 
     client.list_dir("").await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn upload_folder(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    key: &str,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    client.upload_folder(key).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
