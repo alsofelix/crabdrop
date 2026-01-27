@@ -2,8 +2,8 @@ use crate::config::Config;
 use crate::types::File;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
-use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::Client;
 
 pub struct S3Client {
     client: Client,
@@ -73,10 +73,11 @@ impl S3Client {
         Ok(vector)
     }
 
-    pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()>{
+    pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
         let bytestream = ByteStream::from(data);
 
-        self.client.put_object()
+        self.client
+            .put_object()
             .bucket(&self.bucket_name)
             .key(key)
             .body(bytestream)
@@ -87,7 +88,8 @@ impl S3Client {
     }
 
     pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
-        self.client.delete_object()
+        self.client
+            .delete_object()
             .bucket(&self.bucket_name)
             .key(key)
             .send()
@@ -106,7 +108,9 @@ impl S3Client {
     }
 
     pub async fn download_file(&self, key: &str) -> anyhow::Result<Vec<u8>> {
-        let file = self.client.get_object()
+        let file = self
+            .client
+            .get_object()
             .bucket(&self.bucket_name)
             .key(key)
             .send()

@@ -1,33 +1,29 @@
-use std::fs;
-use std::path::Path;
 use crate::s3::S3Client;
-use tauri::State;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod commands;
 mod config;
 mod s3;
 mod types;
 
-#[tauri::command]
-async fn list_files(s3: State<'_, S3Client>, prefix: &str) -> Result<Vec<types::File>, String>{
-    s3.list_dir(prefix).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn upload_file(s3: State<'_, S3Client>, key: &str, path: &str) -> Result<(), String> {
-    let file = fs::read(Path::new(path)).map_err(|e1| e1.to_string())?;
-
-    s3.upload_file(key, file).await.map_err(|e| e.to_string())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let config = config::Config::load().unwrap();
-    let s3_client = S3Client::new(&config).unwrap();
+    let client_state = match config::Config::load() {
+        Ok(config) if config.is_valid() => match S3Client::new(&config) {
+            Ok(client) => Arc::new(Mutex::new(Some(client))),
+            Err(_) => Arc::new(Mutex::new(None)),
+        },
+        _ => Arc::new(Mutex::new(None)),
+    };
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(s3_client)
-        .invoke_handler(tauri::generate_handler![list_files, upload_file])
+        .manage(client_state)
+        .invoke_handler(tauri::generate_handler![
+            commands::list_files,
+            commands::upload_file,
+            commands::check_config
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
