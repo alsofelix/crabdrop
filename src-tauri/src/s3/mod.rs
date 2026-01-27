@@ -3,9 +3,9 @@ use crate::types::File;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
 use aws_sdk_s3::Client;
-use tauri::utils::config::PatternKind::Brownfield;
+use aws_sdk_s3::primitives::ByteStream;
 
-struct S3Client {
+pub struct S3Client {
     client: Client,
     bucket_name: String,
 }
@@ -72,6 +72,31 @@ impl S3Client {
 
         Ok(vector)
     }
+
+    pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()>{
+        let bytestream = ByteStream::from(data);
+
+        self.client.put_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .body(bytestream)
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn download_file(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let file = self.client.get_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await?;
+
+        let bytes = file.body.collect().await?;
+
+        Ok(bytes.to_vec())
+    }
 }
 
 fn get_credentials(config: &Config) -> anyhow::Result<aws_sdk_s3::config::Config> {
@@ -86,6 +111,7 @@ fn get_credentials(config: &Config) -> anyhow::Result<aws_sdk_s3::config::Config
     let config = Builder::new()
         .region(Region::new(config.storage.region.clone()))
         .credentials_provider(credentials)
+        .behavior_version_latest()
         .build();
 
     Ok(config)
