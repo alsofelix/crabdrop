@@ -107,5 +107,33 @@
         </div>
     </div>
 </div>
+
+<div id="upload-overlay" class="upload-overlay hidden">
+    <div class="upload-card">
+        <div class="upload-header">
+            <span>Uploading</span>
+            <button id="upload-close" class="upload-close">✕</button>
+        </div>
+
+        <div class="upload-body">
+            <div class="upload-filename">
+                <span class="upload-icon">📄</span>
+                <span id="upload-name">filename.ext</span>
+            </div>
+
+            <div class="upload-progress-container">
+                <div class="upload-progress-bar">
+                    <div id="upload-progress-fill" class="upload-progress-fill"></div>
+                </div>
+                <span id="upload-percent" class="upload-percent">0%</span>
+            </div>
+
+            <div id="upload-details" class="upload-details">
+                <span id="upload-part-info" class="hidden">Part 0/0 • Multipart</span>
+                <span id="upload-file-info" class="hidden">File 0 of 0</span>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>
