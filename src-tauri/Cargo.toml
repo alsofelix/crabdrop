@@ -25,7 +25,6 @@ serde_json = "1"
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-fs = "2.4.5"
 aws-sdk-s3 = "1.120.0"
-aws-config = "1.8.12"
 tokio = { version = "1.49.0", features = ["full"] }
 dirs = "6.0.0"
 toml = "0.9.11"
