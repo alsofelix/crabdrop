@@ -5,6 +5,12 @@ mod config;
 mod s3;
 mod types;
 
-fn main() {
-    crabdrop_lib::run()
+#[tokio::main]
+
+async fn main() {
+    let config = config::Config::load();
+    let s3 = s3::S3Client::new(&config.unwrap()).unwrap();
+    let files = s3.list_dir("").await;
+    println!("{:?}", files);
+    // crabdrop_lib::run()
 }
