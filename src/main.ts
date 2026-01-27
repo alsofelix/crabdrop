@@ -44,12 +44,48 @@ async function init() {
 
     if (isConfigured) {
         showScreen("browser");
-        loadFiles("");
+        await loadFiles("");
     } else {
         showScreen("setup");
+        await setUpConnScreen()
     }
 }
 
+async function handleConnection() {
+    const endpoint = (document.getElementById("endpoint") as HTMLInputElement).value;
+    const bucket = (document.getElementById("bucket") as HTMLInputElement).value;
+    const region = (document.getElementById("region") as HTMLInputElement).value;
+    const accessKey = (document.getElementById("access-key") as HTMLInputElement).value;
+    const secretKey = (document.getElementById("secret-key") as HTMLInputElement).value;
+
+    const errorEl = document.getElementById("setup-error")!;
+    const btn = document.getElementById("btn-connect") as HTMLButtonElement;
+
+    try {
+        btn.disabled = true;
+        btn.textContent = "Connecting...";
+        errorEl.classList.add("hidden");
+
+        await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey});
+        await invoke("test_connection");
+
+        showScreen("browser");
+        await loadFiles("");
+    } catch (err) {
+        errorEl.textContent = String(err);
+        errorEl.classList.remove("hidden");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Connect";
+    }
+}
+
+async function setUpConnScreen() {
+    document.getElementById("setup-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault()
+        await handleConnection()
+    })
+}
 function showScreen(screen: "setup" | "browser") {
     document.getElementById("setup-screen")!.classList.toggle("hidden", screen !== "setup");
     document.getElementById("browser-screen")!.classList.toggle("hidden", screen !== "browser");
