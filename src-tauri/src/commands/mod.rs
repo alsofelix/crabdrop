@@ -3,7 +3,7 @@ use crate::s3::S3Client;
 use crate::{config, types};
 use std::path::Path;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 use tokio::sync::Mutex;
 
 #[tauri::command]
@@ -80,6 +80,7 @@ pub async fn upload_folder(
 
 #[tauri::command]
 pub async fn upload_path(
+    app: tauri::AppHandle,
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     local_path: String,
     target_prefix: String,
@@ -93,11 +94,28 @@ pub async fn upload_path(
 
     if metadata.is_file() {
         client
-            .det_upload(&target_prefix, path)
+            .det_upload(&target_prefix, path, &app, true)
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
     } else if metadata.is_dir() {
+        let total_files: usize = walkdir::WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .count();
+
+        app.emit(
+            "upload_start",
+            serde_json::json!({
+                "filename": path.file_name().unwrap().to_string_lossy(),
+                "multipart": false,
+                "isFolder": true,
+                "totalFiles": total_files
+            }),
+        )
+        .ok();
+        let mut x = 1;
         for i in walkdir::WalkDir::new(path) {
             let entry = i.map_err(|e| e.to_string())?;
 
@@ -106,12 +124,24 @@ pub async fn upload_path(
                 let relative = file_path.strip_prefix(path).map_err(|e| e.to_string())?;
                 let key = format!("{}/{}", target_prefix, relative.to_string_lossy());
 
+                app.emit(
+                    "folder_progress",
+                    serde_json::json!({
+                        "filename": relative.to_string_lossy(),
+                        "currentFile": x,
+                        "totalFiles": total_files,
+                    }),
+                )
+                .ok();
+
                 client
-                    .det_upload(&key, file_path)
+                    .det_upload(&key, file_path, &app, false)
                     .await
                     .map_err(|e| e.to_string())?;
+                x += 1;
             }
         }
+        app.emit("upload_complete", serde_json::json!({})).ok();
         Ok(())
     } else {
         Err("Unable to add file".to_string())

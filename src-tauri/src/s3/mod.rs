@@ -7,8 +7,10 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
+use tauri::Emitter;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
+const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
 
 pub struct S3Client {
     client: Client,
@@ -78,14 +80,35 @@ impl S3Client {
         Ok(vector)
     }
 
-    pub async fn det_upload(&self, key: &str, path: &Path) -> anyhow::Result<()> {
+    pub async fn det_upload(
+        &self,
+        key: &str,
+        path: &Path,
+        app: &tauri::AppHandle,
+        emit_event: bool,
+    ) -> anyhow::Result<()> {
         let size = std::fs::metadata(path)?.len();
 
         if size < THRESHOLD {
             let data = std::fs::read(path)?;
+            if emit_event {
+                app.emit(
+                    "upload_start",
+                    serde_json::json!({
+                        "filename": path.file_name().unwrap().to_string_lossy(),
+                        "multipart": false,
+                        "isFolder": false,
+                    }),
+                )
+                .ok();
+            }
             self.upload_file(key, data).await?;
+            if emit_event {
+                app.emit("upload_complete", serde_json::json!({})).ok();
+            }
         } else {
-            self.upload_file_multipart(key, path).await?;
+            self.upload_file_multipart(key, path, app, emit_event)
+                .await?;
         }
 
         Ok(())
@@ -139,7 +162,13 @@ impl S3Client {
         Ok(bytes.to_vec())
     }
 
-    pub async fn upload_file_multipart(&self, key: &str, path: &Path) -> anyhow::Result<()> {
+    pub async fn upload_file_multipart(
+        &self,
+        key: &str,
+        path: &Path,
+        app: &tauri::AppHandle,
+        emit_events: bool,
+    ) -> anyhow::Result<()> {
         let con = self
             .client
             .create_multipart_upload()
@@ -154,15 +183,27 @@ impl S3Client {
 
         let mut file = std::fs::File::open(path)?;
         let file_size = file.metadata()?.len();
-        let chunk_size: u64 = 50 * 1024 * 1024;
         let mut offset: u64 = 0;
+
+        if emit_events {
+            app.emit(
+                "upload_start",
+                serde_json::json!({
+                    "filename": path.file_name().unwrap().to_string_lossy(),
+                    "multipart": true,
+                    "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
+                    "isFolder": false,
+                }),
+            )
+            .ok();
+        }
 
         let mut completed_parts: Vec<CompletedPart> = vec![];
 
         while offset < file_size {
             let remaining = file_size - offset;
 
-            let this_chunk_size = std::cmp::min(chunk_size, remaining);
+            let this_chunk_size = std::cmp::min(CHUNK_SIZE, remaining);
 
             let mut buffer = vec![0u8; this_chunk_size as usize];
             file.seek(std::io::SeekFrom::Start(offset))?;
@@ -187,22 +228,37 @@ impl S3Client {
                 .e_tag(part.e_tag().unwrap().to_string())
                 .build();
 
-            completed_parts.push(completed_part)
+            completed_parts.push(completed_part);
+
+            if emit_events {
+                app.emit(
+                    "upload_progress",
+                    serde_json::json!({
+                        "filename": path.file_name().unwrap().to_string_lossy(),
+                        "part": completed_parts.len(),
+                        "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
+                    }),
+                )
+                .ok();
+            }
         }
 
-
-        self.client.complete_multipart_upload()
+        self.client
+            .complete_multipart_upload()
             .bucket(&self.bucket_name)
             .key(key)
             .upload_id(upload_id)
             .multipart_upload(
                 CompletedMultipartUpload::builder()
                     .set_parts(Some(completed_parts))
-                    .build()
+                    .build(),
             )
             .send()
             .await?;
 
+        if emit_events {
+            app.emit("upload_complete", serde_json::json!({})).ok();
+        }
         Ok(())
     }
 }
