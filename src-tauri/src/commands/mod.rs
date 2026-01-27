@@ -69,9 +69,8 @@ pub async fn save_config(
 }
 
 #[tauri::command]
-pub async fn get_config(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<Config, String> {
-    let mut config = config::Config::load().map_err(|e| e.to_string())?;
-    config.credentials.secret_access_key = "".to_string();
+pub async fn get_config() -> Result<Config, String> {
+    let config = config::Config::load().map_err(|e| e.to_string())?;
 
     Ok(config)
 }
