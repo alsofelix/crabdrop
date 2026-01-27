@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::s3::S3Client;
 use crate::{config, types};
 use std::fs;
@@ -65,6 +66,14 @@ pub async fn save_config(
     let client = S3Client::new(&config).map_err(|e1| e1.to_string())?;
     *guard = Some(client);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_config(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<Config, String> {
+    let mut config = config::Config::load().map_err(|e| e.to_string())?;
+    config.credentials.secret_access_key = "".to_string();
+
+    Ok(config)
 }
 
 #[tauri::command]
