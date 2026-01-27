@@ -29,4 +29,5 @@ tokio = { version = "1.49.0", features = ["full"] }
 dirs = "6.0.0"
 toml = "0.9.11"
 anyhow = "1.0.100"
+walkdir = "2.5.0"
 
