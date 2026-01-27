@@ -19,12 +19,12 @@ A simple, fast file manager for S3-compatible storage.
 
 Download the latest release from [GitHub Releases](https://github.com/alsofelix/crabdrop/releases).
 
-| Platform | Download |
-|----------|----------|
-| macOS (Apple Silicon) | `.dmg` |
-| macOS (Intel) | `.dmg` |
-| Windows | `.msi` or `.exe` |
-| Linux | `.deb` or `.AppImage` |
+| Platform              | Download              |
+|-----------------------|-----------------------|
+| macOS (Apple Silicon) | `.dmg`                |
+| macOS (Intel)         | `.dmg`                |
+| Windows               | `.msi` or `.exe`      |
+| Linux                 | `.deb` or `.AppImage` |
 
 ### Flathub
 
@@ -33,6 +33,7 @@ Coming soon.
 ## Building from source
 
 Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/), and [Bun](https://bun.sh/).
+
 ```bash
 git clone https://github.com/alsofelix/crabdrop.git
 cd crabdrop
