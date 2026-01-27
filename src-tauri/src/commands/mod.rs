@@ -1,5 +1,5 @@
 use crate::s3::S3Client;
-use crate::types;
+use crate::{config, types};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -38,4 +38,40 @@ pub async fn upload_file(
 pub async fn check_config(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<bool, String> {
     let guard = state.lock().await;
     Ok(guard.is_some())
+}
+
+#[tauri::command]
+pub async fn save_config(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    endpoint: String,
+    bucket: String,
+    region: String,
+    access_key: String,
+    secret_key: String,
+) -> Result<(), String> {
+    let config = config::Config {
+        storage: config::StorageConfig {
+            endpoint,
+            bucket,
+            region,
+        },
+        credentials: config::CredentialsConfig {
+            access_key_id: access_key,
+            secret_access_key: secret_key,
+        },
+    };
+    config.save().map_err(|e| e.to_string())?;
+    let mut guard = state.lock().await;
+    let client = S3Client::new(&config).map_err(|e1| e1.to_string())?;
+    *guard = Some(client);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<(), String> {
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    client.list_dir("").await.map_err(|e| e.to_string())?;
+    Ok(())
 }
