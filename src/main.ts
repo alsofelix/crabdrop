@@ -103,6 +103,15 @@ async function downloadFile(file: File): Promise<void> {
     }
 }
 
+async function deleteFile(file: File): Promise<void> {
+    try {
+        await invoke("delete_file", { key: file.key, isFolder: file.isFolder });
+        await loadFiles(currentPath);
+    } catch (e) {
+        console.error("Delete failed:", e);
+    }
+}
+
 async function handleConnection() {
     const endpoint = (document.getElementById("endpoint") as HTMLInputElement).value;
     const bucket = (document.getElementById("bucket") as HTMLInputElement).value;
@@ -287,8 +296,7 @@ function setupContextMenu(): void {
 
     document.getElementById("ctx-delete")?.addEventListener("click", () => {
         if (selectedFile) {
-            // deleteFile(selectedFile);
-            console.log("Deletes")
+            deleteFile(selectedFile);
         }
         hideContextMenu();
     });
@@ -314,7 +322,7 @@ function handleFileClick(file: File): void {
     if (file.isFolder) {
         loadFiles(file.key);
     } else {
-        console.log("Download:", file.key);
+        downloadFile(file)
     }
 }
 

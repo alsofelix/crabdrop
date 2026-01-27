@@ -192,3 +192,23 @@ pub async fn download_file(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn delete_file(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    key: &str,
+    is_folder: bool,
+) -> Result<(), String> {
+    
+    if is_folder {
+        // deleting folders not yet!
+        return Ok(())
+    }
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    client.delete_file(key).await.map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
