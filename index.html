@@ -1,100 +1,111 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+    <meta charset="UTF-8"/>
+    <link rel="stylesheet" href="/src/styles.css"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>crabdrop</title>
     <script type="module" src="/src/main.ts" defer></script>
-  </head>
+</head>
 
-  <body>
-    <main id="setup-screen" class="container setup hidden">
-      <div class="setup-card">
+<body>
+<main id="setup-screen" class="container setup hidden">
+    <div class="setup-card">
         <h1>🦀 crabdrop</h1>
         <p class="subtitle">Connect your S3-compatible storage</p>
 
         <form id="setup-form">
-          <div class="form-group">
-            <label for="endpoint">Endpoint URL</label>
-            <input
-              type="text"
-              id="endpoint"
-              placeholder="https://s3.us-east-1.amazonaws.com"
-            />
-            <span class="hint">Leave empty for AWS (uses region), or enter custom endpoint for MinIO/R2</span>
-          </div>
+            <div class="form-group">
+                <label for="endpoint">Endpoint URL</label>
+                <input
+                        type="text"
+                        id="endpoint"
+                        placeholder="https://s3.us-east-1.amazonaws.com"
+                />
+                <span class="hint">Leave empty for AWS (uses region), or enter custom endpoint for MinIO/R2</span>
+            </div>
 
-          <div class="form-group">
-            <label for="bucket">Bucket Name</label>
-            <input
-              type="text"
-              id="bucket"
-              placeholder="my-bucket"
-              required
-            />
-          </div>
+            <div class="form-group">
+                <label for="bucket">Bucket Name</label>
+                <input
+                        type="text"
+                        id="bucket"
+                        placeholder="my-bucket"
+                        required
+                />
+            </div>
 
-          <div class="form-group">
-            <label for="region">Region</label>
-            <input
-              type="text"
-              id="region"
-              placeholder="us-east-1"
-              required
-            />
-          </div>
+            <div class="form-group">
+                <label for="region">Region</label>
+                <input
+                        type="text"
+                        id="region"
+                        placeholder="us-east-1"
+                        required
+                />
+            </div>
 
-          <div class="form-group">
-            <label for="access-key">Access Key ID</label>
-            <input
-              type="text"
-              id="access-key"
-              placeholder="AKIA..."
-              required
-            />
-          </div>
+            <div class="form-group">
+                <label for="access-key">Access Key ID</label>
+                <input
+                        type="text"
+                        id="access-key"
+                        placeholder="AKIA..."
+                        required
+                />
+            </div>
 
-          <div class="form-group">
-            <label for="secret-key">Secret Access Key</label>
-            <input
-              type="password"
-              id="secret-key"
-              placeholder="••••••••"
-              required
-            />
-          </div>
+            <div class="form-group">
+                <label for="secret-key">Secret Access Key</label>
+                <input
+                        type="password"
+                        id="secret-key"
+                        placeholder="••••••••"
+                        required
+                />
+            </div>
 
-          <div id="setup-error" class="error hidden"></div>
+            <div id="setup-error" class="error hidden"></div>
 
-          <button type="submit" id="btn-connect">
-            Connect
-          </button>
+            <button type="submit" id="btn-connect">
+                Connect
+            </button>
         </form>
-      </div>
-    </main>
+    </div>
+</main>
 
-    <main id="browser-screen" class="container hidden">
-      <header>
+<main id="browser-screen" class="container hidden">
+    <header>
         <h1>🦀 crabdrop</h1>
-      </header>
+    </header>
 
-      <nav class="breadcrumb">
+    <nav class="breadcrumb">
         <span id="current-path">/</span>
-      </nav>
+    </nav>
 
-      <div class="toolbar">
+    <div class="toolbar">
         <button id="btn-back">← Back</button>
         <button id="btn-refresh">Refresh</button>
         <button id="btn-new-folder">New Folder</button>
         <button id="btn-settings" class="btn-right">⚙️</button>
-      </div>
+    </div>
 
-      <div id="file-list" class="file-list"></div>
+    <div id="file-list" class="file-list"></div>
 
-      <div id="drop-zone" class="drop-zone">
+    <div id="drop-zone" class="drop-zone">
         <p>Drag files here to upload</p>
-      </div>
-    </main>
-  </body>
+    </div>
+</main>
+
+<div id="folder-modal" class="modal hidden">
+    <div class="modal-content">
+        <h3>New Folder</h3>
+        <label for="folder-name"></label><input type="text" id="folder-name" placeholder="Folder name"/>
+        <div class="modal-buttons">
+            <button id="folder-cancel">Cancel</button>
+            <button id="folder-create">Create</button>
+        </div>
+    </div>
+</div>
+</body>
 </html>
