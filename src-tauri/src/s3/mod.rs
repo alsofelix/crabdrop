@@ -3,7 +3,11 @@ use crate::types::File;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
+use std::io::{Read, Seek};
+use std::path::Path;
+use tauri::ipc::RuntimeCapability;
 
 pub struct S3Client {
     client: Client,
@@ -119,6 +123,73 @@ impl S3Client {
         let bytes = file.body.collect().await?;
 
         Ok(bytes.to_vec())
+    }
+
+    pub async fn upload_file_multipart(&self, key: &str, path: &Path) -> anyhow::Result<()> {
+        let con = self
+            .client
+            .create_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await?;
+
+        let upload_id = con
+            .upload_id()
+            .ok_or(anyhow::anyhow!("No upload ID returned"))?;
+
+        let mut file = std::fs::File::open(path)?;
+        let file_size = file.metadata()?.len();
+        let chunk_size: u64 = 50 * 1024 * 1024;
+        let mut offset: u64 = 0;
+
+        let mut completed_parts: Vec<CompletedPart> = vec![];
+
+        while offset < file_size {
+            let remaining = file_size - offset;
+
+            let this_chunk_size = std::cmp::min(chunk_size, remaining);
+
+            let mut buffer = vec![0u8; this_chunk_size as usize];
+            file.seek(std::io::SeekFrom::Start(offset))?;
+
+            file.read_exact(&mut buffer)?;
+
+            let part = self
+                .client
+                .upload_part()
+                .bucket(&self.bucket_name)
+                .key(key)
+                .upload_id(upload_id)
+                .part_number((completed_parts.len() + 1) as i32)
+                .body(ByteStream::from(buffer))
+                .send()
+                .await?;
+
+            offset += this_chunk_size;
+
+            let completed_part = CompletedPart::builder()
+                .part_number((completed_parts.len() + 1) as i32)
+                .e_tag(part.e_tag().unwrap().to_string())
+                .build();
+
+            completed_parts.push(completed_part)
+        }
+
+
+        self.client.complete_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(
+                CompletedMultipartUpload::builder()
+                    .set_parts(Some(completed_parts))
+                    .build()
+            )
+            .send()
+            .await?;
+
+        Ok(())
     }
 }
 
