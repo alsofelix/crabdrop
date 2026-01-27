@@ -24,6 +24,7 @@ let uploadState: UploadState = {
     currentFile: 0,
     totalFiles: 0,
 };
+let selectedFile: File | null = null;
 
 interface File {
     name: string;
@@ -83,6 +84,7 @@ async function init() {
     setUpConnScreen();
     setupFolderModal();
     setupUploadEvents();
+    setupContextMenu();
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
@@ -90,6 +92,14 @@ async function init() {
         await loadFiles("");
     } else {
         showScreen("setup");
+    }
+}
+
+async function downloadFile(file: File): Promise<void> {
+    try {
+        await invoke("download_file", { key: file.key, filename: file.name });
+    } catch (e) {
+        console.error("Download failed:", e);
     }
 }
 
@@ -241,6 +251,49 @@ function renderFiles(files: File[]): void {
     }
 }
 
+function showContextMenu(e: MouseEvent, file: File): void {
+    e.preventDefault();
+    selectedFile = file;
+
+    const menu = document.getElementById("context-menu")!;
+    const downloadBtn = document.getElementById("ctx-download")!;
+
+    downloadBtn.classList.toggle("hidden", file.isFolder);
+
+    menu.style.left = e.clientX + "px";
+    menu.style.top = e.clientY + "px";
+    menu.classList.remove("hidden");
+}
+
+function hideContextMenu(): void {
+    document.getElementById("context-menu")!.classList.add("hidden");
+    selectedFile = null;
+}
+
+function setupContextMenu(): void {
+    document.addEventListener("click", hideContextMenu);
+    document.addEventListener("contextmenu", (e) => {
+        if (!(e.target as HTMLElement).closest(".file-item")) {
+            hideContextMenu();
+        }
+    });
+
+    document.getElementById("ctx-download")?.addEventListener("click", () => {
+        if (selectedFile && !selectedFile.isFolder) {
+            downloadFile(selectedFile);
+        }
+        hideContextMenu();
+    });
+
+    document.getElementById("ctx-delete")?.addEventListener("click", () => {
+        if (selectedFile) {
+            // deleteFile(selectedFile);
+            console.log("Deletes")
+        }
+        hideContextMenu();
+    });
+}
+
 function createFileItem(file: File): HTMLElement {
     const item = document.createElement("div");
     item.className = "file-item";
@@ -252,8 +305,10 @@ function createFileItem(file: File): HTMLElement {
   `;
 
     item.addEventListener("click", () => handleFileClick(file));
+    item.addEventListener("contextmenu", (e) => showContextMenu(e, file));
     return item;
 }
+
 
 function handleFileClick(file: File): void {
     if (file.isFolder) {
