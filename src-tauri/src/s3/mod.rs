@@ -86,6 +86,25 @@ impl S3Client {
         Ok(())
     }
 
+    pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
+        self.client.delete_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await?;
+        Ok(())
+    }
+
+    pub async fn upload_folder(&self, key: &str) -> anyhow::Result<()> {
+        let folder_name = if !key.ends_with("/") {
+            format!("{}/", key)
+        } else {
+            key.to_string()
+        };
+
+        self.upload_file(&folder_name, vec![]).await
+    }
+
     pub async fn download_file(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         let file = self.client.get_object()
             .bucket(&self.bucket_name)
