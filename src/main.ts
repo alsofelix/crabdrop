@@ -1,6 +1,30 @@
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 
+interface UploadState {
+    active: boolean;
+    filename: string;
+    isMultipart: boolean;
+    percent: number;
+    part: number;
+    totalParts: number;
+    isFolder: boolean;
+    currentFile: number;
+    totalFiles: number;
+}
+
+let uploadState: UploadState = {
+    active: false,
+    filename: "",
+    isMultipart: false,
+    percent: -1,
+    part: 0,
+    totalParts: 0,
+    isFolder: false,
+    currentFile: 0,
+    totalFiles: 0,
+};
+
 interface File {
     name: string;
     key: string;
@@ -58,6 +82,7 @@ async function init() {
     setUpSettingsButton();
     setUpConnScreen();
     setupFolderModal();
+    setupUploadEvents();
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
@@ -107,6 +132,98 @@ function setUpConnScreen() {
 function showScreen(screen: "setup" | "browser") {
     document.getElementById("setup-screen")!.classList.toggle("hidden", screen !== "setup");
     document.getElementById("browser-screen")!.classList.toggle("hidden", screen !== "browser");
+}
+
+function showUploadOverlay() {
+    document.getElementById("upload-overlay")!.classList.remove("hidden");
+}
+
+function hideUploadOverlay() {
+    document.getElementById("upload-overlay")!.classList.add("hidden");
+}
+
+function updateUploadUI() {
+    const nameEl = document.getElementById("upload-name")!;
+    const fillEl = document.getElementById("upload-progress-fill")!;
+    const percentEl = document.getElementById("upload-percent")!;
+    const partEl = document.getElementById("upload-part-info")!;
+    const fileEl = document.getElementById("upload-file-info")!;
+
+    nameEl.textContent = uploadState.filename;
+
+    if (uploadState.percent < 0) {
+        fillEl.classList.add("indeterminate");
+        fillEl.style.width = "";
+        percentEl.textContent = "";
+    } else {
+        fillEl.classList.remove("indeterminate");
+        fillEl.style.width = uploadState.percent + "%";
+        percentEl.textContent = uploadState.percent + "%";
+    }
+
+    if (uploadState.isMultipart && uploadState.totalParts > 0) {
+        partEl.textContent = `Part ${uploadState.part}/${uploadState.totalParts} • Multipart`;
+        partEl.classList.remove("hidden");
+    } else {
+        partEl.classList.add("hidden");
+    }
+
+    if (uploadState.isFolder && uploadState.totalFiles > 0) {
+        fileEl.textContent = `File ${uploadState.currentFile} of ${uploadState.totalFiles}`;
+        fileEl.classList.remove("hidden");
+    } else {
+        fileEl.classList.add("hidden");
+    }
+}
+
+function setupUploadEvents() {
+    document.getElementById("upload-close")?.addEventListener("click", () => {
+        hideUploadOverlay();
+    });
+
+    listen("upload_start", (event: any) => {
+        const data = event.payload;
+        uploadState = {
+            active: true,
+            filename: data.filename,
+            isMultipart: data.multipart || false,
+            percent: data.multipart ? 0 : -1,
+            part: 0,
+            totalParts: data.totalParts || 0,
+            isFolder: data.isFolder || false,
+            currentFile: data.currentFile || 0,
+            totalFiles: data.totalFiles || 0,
+        };
+        showUploadOverlay();
+        updateUploadUI();
+    });
+
+    listen("upload_progress", (event: any) => {
+        const data = event.payload;
+        uploadState.part = data.part;
+        uploadState.totalParts = data.totalParts;
+        uploadState.percent = Math.round((data.part / data.totalParts) * 100);
+        if (data.filename) uploadState.filename = data.filename;
+        updateUploadUI();
+    });
+
+    listen("folder_progress", (event: any) => {
+        const data = event.payload;
+        uploadState.currentFile = data.currentFile;
+        uploadState.totalFiles = data.totalFiles;
+        if (data.filename) uploadState.filename = data.filename;
+        uploadState.isFolder = true;
+        updateUploadUI();
+    });
+
+    listen("upload_complete", (_event: any) => {
+        uploadState.percent = 100;
+        updateUploadUI();
+        setTimeout(() => {
+            hideUploadOverlay();
+            uploadState.active = false;
+        }, 1000);
+    });
 }
 
 function updateBreadcrumb(path: string): void {
