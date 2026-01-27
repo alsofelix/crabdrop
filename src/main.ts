@@ -9,6 +9,22 @@ interface File {
     lastModified: number | null;
 }
 
+interface StorageConfig {
+    endpoint: string;
+    bucket: string;
+    region: string
+}
+
+interface CredentialsConfig {
+    access_key_id: string;
+    secret_access_key: string | null;
+}
+
+interface Config {
+    storage: StorageConfig;
+    credentials: CredentialsConfig
+}
+
 interface DropPayload {
     paths: string[];
     position: { x: number; y: number };
@@ -39,15 +55,15 @@ async function uploadFile(localPath: string, key: string): Promise<void> {
 async function init() {
     setupEventListeners();
     setupDropZone();
+    setUpSettingsButton();
+    setUpConnScreen();
 
     const isConfigured = await invoke<boolean>("check_config");
-
     if (isConfigured) {
         showScreen("browser");
         await loadFiles("");
     } else {
         showScreen("setup");
-        await setUpConnScreen()
     }
 }
 
@@ -80,12 +96,13 @@ async function handleConnection() {
     }
 }
 
-async function setUpConnScreen() {
+function setUpConnScreen() {
     document.getElementById("setup-form")?.addEventListener("submit", async (e) => {
         e.preventDefault()
         await handleConnection()
     })
 }
+
 function showScreen(screen: "setup" | "browser") {
     document.getElementById("setup-screen")!.classList.toggle("hidden", screen !== "setup");
     document.getElementById("browser-screen")!.classList.toggle("hidden", screen !== "browser");
@@ -144,6 +161,23 @@ function navigateUp(): void {
     parts.pop();
     const newPath = parts.length ? parts.join("/") + "/" : "";
     loadFiles(newPath);
+}
+
+function setUpSettingsButton() {
+    document.getElementById("btn-settings")?.addEventListener("click", async () => {
+        try {
+            const config: Config = await invoke<Config>("get_config");
+
+            (document.getElementById("endpoint") as HTMLInputElement).value = config.storage.endpoint;
+            (document.getElementById("bucket") as HTMLInputElement).value = config.storage.bucket;
+            (document.getElementById("region") as HTMLInputElement).value = config.storage.region;
+            (document.getElementById("access-key") as HTMLInputElement).value = config.credentials.access_key_id;
+            (document.getElementById("secret-key") as HTMLInputElement).value = config.credentials.secret_access_key || "";
+            showScreen("setup");
+        } catch (err) {
+            console.error(err);
+        }
+    })
 }
 
 function setupDropZone(): void {
