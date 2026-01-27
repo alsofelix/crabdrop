@@ -3,6 +3,7 @@
 
 mod config;
 mod s3;
+mod types;
 
 fn main() {
     crabdrop_lib::run()
