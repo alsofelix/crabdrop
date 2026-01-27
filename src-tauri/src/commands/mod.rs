@@ -1,10 +1,36 @@
 use crate::config::Config;
 use crate::s3::S3Client;
 use crate::{config, types};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::sync::Mutex;
+
+fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
+    let path = dir.join(filename);
+    if !path.exists() {
+        return path;
+    }
+
+    let stem = Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
+    let ext = Path::new(filename).extension().and_then(|s| s.to_str());
+
+    let mut counter = 1;
+    loop {
+        let new_name = match ext {
+            Some(e) => format!("{} ({}).{}", stem, counter, e),
+            None => format!("{} ({})", stem, counter),
+        };
+        let new_path = dir.join(&new_name);
+        if !new_path.exists() {
+            return new_path;
+        }
+        counter += 1;
+    }
+}
 
 #[tauri::command]
 pub async fn list_files(
@@ -146,4 +172,23 @@ pub async fn upload_path(
     } else {
         Err("Unable to add file".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn download_file(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    key: &str,
+    filename: &str,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    let download_dir = dirs::download_dir().ok_or("No download dir")?;
+    let file = client.download_file(key).await.map_err(|e| e.to_string())?;
+
+    let file_path = get_unique_path(&download_dir, filename);
+
+    std::fs::write(file_path, file).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
