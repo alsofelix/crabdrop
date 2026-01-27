@@ -393,3 +393,36 @@ header h1 {
 #upload-file-info {
     color: #888;
 }
+
+.context-menu {
+    position: fixed;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 4px;
+    min-width: 140px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+}
+
+.context-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: #fff;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.context-menu button:hover {
+    background: #3a3a3a;
+}
+
+.context-menu button#ctx-delete:hover {
+    background: rgba(255, 100, 100, 0.2);
+    color: #ff6464;
+}
