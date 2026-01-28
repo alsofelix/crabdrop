@@ -148,7 +148,7 @@ pub async fn upload_path(
             if entry.file_type().is_file() {
                 let file_path = entry.path();
                 let relative = file_path.strip_prefix(path).map_err(|e| e.to_string())?;
-                let key = format!("{}/{}", target_prefix, relative.to_string_lossy());
+                let key = format!("{}/{}", target_prefix, relative.to_string_lossy().replace("\\", "/"));
 
                 app.emit(
                     "folder_progress",
