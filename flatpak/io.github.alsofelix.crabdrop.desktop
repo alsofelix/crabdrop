@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=crabdrop
+Comment=S3-compatible file manager
+Exec=crabdrop
+Icon=io.github.alsofelix.crabdrop
+Terminal=false
+Type=Application
+Categories=Utility;FileManager;Network;
+StartupWMClass=crabdrop

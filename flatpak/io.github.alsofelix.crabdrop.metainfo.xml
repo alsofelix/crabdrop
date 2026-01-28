@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.alsofelix.crabdrop</id>
+  <name>crabdrop</name>
+  <summary>S3-compatible file manager</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      A simple, fast file manager for S3-compatible storage. Works with AWS S3,
+      Cloudflare R2, MinIO, and any S3-compatible service.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Browse, upload, and download files</li>
+      <li>Drag and drop uploads</li>
+      <li>Multipart upload for large files</li>
+      <li>Folder upload support</li>
+      <li>Upload progress tracking</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.alsofelix.crabdrop.desktop</launchable>
+  <categories>
+    <category>Utility</category>
+    <category>FileManager</category>
+    <category>Network</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/alsofelix/crabdrop/v0.1.0/screenshots/main-app-screenshot.png</image>
+      <caption>File browser</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/alsofelix/crabdrop</url>
+  <url type="bugtracker">https://github.com/alsofelix/crabdrop/issues</url>
+  <url type="vcs-browser">https://github.com/alsofelix/crabdrop</url>
+  <developer id="io.github.alsofelix">
+    <name>Felix</name>
+  </developer>
+  <branding>
+    <color type="primary" scheme_preference="light">#ff6b35</color>
+    <color type="primary" scheme_preference="dark">#ff6b35</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2025-01-27">
+      <description>
+        <p>Initial release</p>
+      </description>
+    </release>
+  </releases>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+</component>
