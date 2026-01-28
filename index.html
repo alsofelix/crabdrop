@@ -135,6 +135,32 @@
         </div>
     </div>
 </div>
+<div id="download-overlay" class="upload-overlay hidden">
+    <div class="upload-card">
+        <div class="upload-header">
+            <span>Downloading</span>
+            <button id="download-close" class="upload-close">✕</button>
+        </div>
+
+        <div class="upload-body">
+            <div class="upload-filename">
+                <span class="upload-icon">⬇️</span>
+                <span id="download-name">filename.ext</span>
+            </div>
+
+            <div class="upload-progress-container">
+                <div class="upload-progress-bar">
+                    <div id="download-progress-fill" class="upload-progress-fill"></div>
+                </div>
+                <span id="download-percent" class="upload-percent">0%</span>
+            </div>
+
+            <div class="upload-details">
+                <span id="download-size-info" class="hidden"></span>
+            </div>
+        </div>
+    </div>
+</div>
 <div id="context-menu" class="context-menu hidden">
     <button id="ctx-download">⬇️ Download</button>
     <button id="ctx-delete">🗑️ Delete</button>

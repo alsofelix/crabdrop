@@ -24,6 +24,21 @@ let uploadState: UploadState = {
     currentFile: 0,
     totalFiles: 0,
 };
+interface DownloadState {
+    active: boolean;
+    filename: string;
+    percent: number;
+    downloadedBytes: number;
+    totalBytes: number;
+}
+
+let downloadState: DownloadState = {
+    active: false,
+    filename: "",
+    percent: -1,
+    downloadedBytes: 0,
+    totalBytes: 0,
+};
 let selectedFile: File | null = null;
 
 interface File {
@@ -84,6 +99,7 @@ async function init() {
     setUpConnScreen();
     setupFolderModal();
     setupUploadEvents();
+    setupDownloadEvents();
     setupContextMenu();
 
     const isConfigured = await invoke<boolean>("check_config");
@@ -161,6 +177,14 @@ function hideUploadOverlay() {
     document.getElementById("upload-overlay")!.classList.add("hidden");
 }
 
+function showDownloadOverlay() {
+    document.getElementById("download-overlay")!.classList.remove("hidden");
+}
+
+function hideDownloadOverlay() {
+    document.getElementById("download-overlay")!.classList.add("hidden");
+}
+
 function updateUploadUI() {
     const nameEl = document.getElementById("upload-name")!;
     const fillEl = document.getElementById("upload-progress-fill")!;
@@ -192,6 +216,38 @@ function updateUploadUI() {
         fileEl.classList.remove("hidden");
     } else {
         fileEl.classList.add("hidden");
+    }
+}
+
+function updateDownloadUI() {
+    const nameEl = document.getElementById("download-name")!;
+    const fillEl = document.getElementById("download-progress-fill")!;
+    const percentEl = document.getElementById("download-percent")!;
+    const sizeEl = document.getElementById("download-size-info")!;
+
+    nameEl.textContent = downloadState.filename;
+
+    if (downloadState.percent < 0) {
+        fillEl.classList.add("indeterminate");
+        fillEl.style.width = "";
+        percentEl.textContent = "";
+    } else {
+        fillEl.classList.remove("indeterminate");
+        fillEl.style.width = downloadState.percent + "%";
+        percentEl.textContent = downloadState.percent + "%";
+    }
+
+    if (downloadState.totalBytes > 0 || downloadState.downloadedBytes > 0) {
+        if (downloadState.totalBytes > 0) {
+            const downloaded = formatSize(downloadState.downloadedBytes);
+            const total = formatSize(downloadState.totalBytes);
+            sizeEl.textContent = `${downloaded} of ${total}`;
+        } else {
+            sizeEl.textContent = `${formatSize(downloadState.downloadedBytes)} downloaded`;
+        }
+        sizeEl.classList.remove("hidden");
+    } else {
+        sizeEl.classList.add("hidden");
     }
 }
 
@@ -241,6 +297,77 @@ function setupUploadEvents() {
         setTimeout(() => {
             hideUploadOverlay();
             uploadState.active = false;
+        }, 1000);
+    });
+}
+
+function setupDownloadEvents() {
+    document.getElementById("download-close")?.addEventListener("click", () => {
+        hideDownloadOverlay();
+        downloadState.active = false;
+    });
+
+    listen("download_start", (event: any) => {
+        const data = event.payload || {};
+        const total = typeof data.totalBytes === "number"
+            ? data.totalBytes
+            : typeof data.size === "number"
+                ? data.size
+                : 0;
+        downloadState = {
+            active: true,
+            filename: data.filename || data.name || "Download",
+            percent: total > 0 ? 0 : -1,
+            downloadedBytes: 0,
+            totalBytes: total,
+        };
+        showDownloadOverlay();
+        updateDownloadUI();
+    });
+
+    listen("download_progress", (event: any) => {
+        const data = event.payload || {};
+        if (typeof data.totalBytes === "number") {
+            downloadState.totalBytes = data.totalBytes;
+        }
+        if (typeof data.downloadedBytes === "number") {
+            downloadState.downloadedBytes = data.downloadedBytes;
+        } else if (typeof data.bytesDownloaded === "number") {
+            downloadState.downloadedBytes = data.bytesDownloaded;
+        }
+        if (downloadState.totalBytes > 0) {
+            downloadState.percent = Math.min(
+                100,
+                Math.round((downloadState.downloadedBytes / downloadState.totalBytes) * 100),
+            );
+        } else if (typeof data.percent === "number") {
+            downloadState.percent = Math.round(data.percent);
+        } else {
+            downloadState.percent = -1;
+        }
+        if (data.filename) {
+            downloadState.filename = data.filename;
+        }
+        updateDownloadUI();
+    });
+
+    listen("download_complete", (event: any) => {
+        const data = event.payload || {};
+        if (typeof data.totalBytes === "number") {
+            downloadState.totalBytes = data.totalBytes;
+        }
+        if (data.filename) {
+            downloadState.filename = data.filename;
+        }
+        if (downloadState.totalBytes > 0) {
+            downloadState.downloadedBytes = downloadState.totalBytes;
+        }
+        downloadState.percent = 100;
+        updateDownloadUI();
+        setTimeout(() => {
+            hideDownloadOverlay();
+            downloadState.active = false;
+            downloadState.percent = -1;
         }, 1000);
     });
 }
