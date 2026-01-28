@@ -272,11 +272,16 @@ fn get_credentials(config: &Config) -> anyhow::Result<aws_sdk_s3::config::Config
         "crabdrop",
     );
 
-    let config = Builder::new()
+    let mut configuration = Builder::new()
         .region(Region::new(config.storage.region.clone()))
         .credentials_provider(credentials)
-        .behavior_version_latest()
-        .build();
+        .behavior_version_latest();
 
-    Ok(config)
+    if !config.storage.endpoint.trim().is_empty() {
+        configuration = configuration
+            .endpoint_url(&config.storage.endpoint)
+            .force_path_style(true);
+    }
+
+    Ok(configuration.build())
 }
