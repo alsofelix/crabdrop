@@ -4,6 +4,7 @@ use crate::{config, types};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
@@ -186,10 +187,23 @@ pub async fn download_file(
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
     let file = client.download_file(key).await.map_err(|e| e.to_string())?;
 
+    let mut body = file.into_async_read();
+
     let file_path = get_unique_path(&download_dir, filename);
+    let temp_path = file_path.with_extension(
+        match file_path.extension().and_then(|e| e.to_str()) {
+            Some(ext) => format!("{ext}.crabdroptemp"),
+            None => String::from("crabdroptemp")
+        }
+    );
+    let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
+    let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
 
-    std::fs::write(file_path, file).map_err(|e| e.to_string())?;
 
+    tokio::io::copy(&mut body, &mut writer).await.map_err(|e| e.to_string())?;
+    writer.flush().await.map_err(|e| e.to_string())?;
+
+    std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
     Ok(())
 }
 

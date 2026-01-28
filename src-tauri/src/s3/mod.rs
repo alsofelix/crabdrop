@@ -148,7 +148,7 @@ impl S3Client {
         self.upload_file(&folder_name, vec![]).await
     }
 
-    pub async fn download_file(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+    pub async fn download_file(&self, key: &str) -> anyhow::Result<ByteStream> {
         let file = self
             .client
             .get_object()
@@ -157,9 +157,7 @@ impl S3Client {
             .send()
             .await?;
 
-        let bytes = file.body.collect().await?;
-
-        Ok(bytes.to_vec())
+        Ok(file.body)
     }
 
     pub async fn upload_file_multipart(
