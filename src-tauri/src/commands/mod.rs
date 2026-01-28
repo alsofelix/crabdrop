@@ -4,7 +4,7 @@ use crate::{config, types};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
@@ -149,7 +149,11 @@ pub async fn upload_path(
             if entry.file_type().is_file() {
                 let file_path = entry.path();
                 let relative = file_path.strip_prefix(path).map_err(|e| e.to_string())?;
-                let key = format!("{}/{}", target_prefix, relative.to_string_lossy().replace("\\", "/"));
+                let key = format!(
+                    "{}/{}",
+                    target_prefix,
+                    relative.to_string_lossy().replace("\\", "/")
+                );
 
                 app.emit(
                     "folder_progress",
@@ -177,6 +181,7 @@ pub async fn upload_path(
 
 #[tauri::command]
 pub async fn download_file(
+    app: tauri::AppHandle,
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
     filename: &str,
@@ -187,23 +192,65 @@ pub async fn download_file(
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
     let file = client.download_file(key).await.map_err(|e| e.to_string())?;
 
+    let (lower, upper) = file.size_hint();
+    let total_bytes = upper.unwrap_or(lower);
+
     let mut body = file.into_async_read();
 
     let file_path = get_unique_path(&download_dir, filename);
-    let temp_path = file_path.with_extension(
-        match file_path.extension().and_then(|e| e.to_str()) {
+    let temp_path =
+        file_path.with_extension(match file_path.extension().and_then(|e| e.to_str()) {
             Some(ext) => format!("{ext}.crabdroptemp"),
-            None => String::from("crabdroptemp")
-        }
-    );
+            None => String::from("crabdroptemp"),
+        });
+    app.emit(
+        "download_start",
+        serde_json::json!({
+            "filename": filename,
+            "totalBytes": total_bytes,
+        }),
+    )
+    .ok();
+
     let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
     let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
 
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut downloaded: u64 = 0;
 
-    tokio::io::copy(&mut body, &mut writer).await.map_err(|e| e.to_string())?;
+    loop {
+        let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+
+        writer
+            .write_all(&buffer[..n])
+            .await
+            .map_err(|e| e.to_string())?;
+        downloaded += n as u64;
+
+        app.emit(
+            "download_progress",
+            serde_json::json!({
+                "filename": filename,
+                "downloadedBytes": downloaded,
+                "totalBytes": total_bytes,
+            }),
+        )
+        .ok();
+    }
     writer.flush().await.map_err(|e| e.to_string())?;
 
     std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
+    app.emit(
+        "download_complete",
+        serde_json::json!({
+            "filename": filename,
+            "totalBytes": downloaded,
+        }),
+    )
+    .ok();
     Ok(())
 }
 
@@ -213,10 +260,9 @@ pub async fn delete_file(
     key: &str,
     is_folder: bool,
 ) -> Result<(), String> {
-    
     if is_folder {
         // deleting folders not yet!
-        return Ok(())
+        return Ok(());
     }
     let guard = state.lock().await;
     let client = guard.as_ref().ok_or("Not configured")?;
@@ -225,4 +271,3 @@ pub async fn delete_file(
 
     Ok(())
 }
-
