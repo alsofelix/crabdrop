@@ -1,9 +1,10 @@
 [Desktop Entry]
-Name=crabdrop
+Name=Crabdrop
+GenericName=File Manager
 Comment=S3-compatible file manager
-Exec=crabdrop
+Exec=crabdrop %U
 Icon=io.github.alsofelix.crabdrop
 Terminal=false
 Type=Application
 Categories=Utility;FileManager;Network;
-StartupWMClass=crabdrop
+Keywords=S3;MinIO;Object Storage;AWS;Files;Upload;Download;

@@ -906,7 +906,7 @@ dependencies = [
 
 [[package]]
 name = "crabdrop"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "aws-sdk-s3",
