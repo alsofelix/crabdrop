@@ -130,7 +130,7 @@ async function handleConnection() {
     const bucket = (document.getElementById("bucket") as HTMLInputElement).value;
     const region = (document.getElementById("region") as HTMLInputElement).value;
     const accessKey = (document.getElementById("access-key") as HTMLInputElement).value;
-    const secretKey = (document.getElementById("secret-key") as HTMLInputElement).value;
+    let secretKey: string | undefined = (document.getElementById("secret-key") as HTMLInputElement).value;
 
     const errorEl = document.getElementById("setup-error")!;
     const btn = document.getElementById("btn-connect") as HTMLButtonElement;
@@ -139,6 +139,10 @@ async function handleConnection() {
         btn.disabled = true;
         btn.textContent = "Connecting...";
         errorEl.classList.add("hidden");
+
+        if (secretKey.trim() == "") {
+            secretKey = undefined;
+        }
 
         await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey});
         await invoke("test_connection");
@@ -479,6 +483,7 @@ function setUpSettingsButton() {
             (document.getElementById("access-key") as HTMLInputElement).value = config.access_key_id;
 
             const secretEl = document.getElementById("secret-key") as HTMLInputElement;
+            secretEl.required = !config.has_secret;
 
             secretEl.value = "";
             secretEl.placeholder = config.has_secret
