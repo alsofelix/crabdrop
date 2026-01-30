@@ -28,7 +28,7 @@ Download the latest release from [GitHub Releases](https://github.com/alsofelix/
 
 ### Flathub
 
-Coming soon.
+Run `flatpak install flathub io.github.alsofelix.crabdrop`
 
 ## Building from source
 
