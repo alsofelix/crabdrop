@@ -48,8 +48,9 @@ impl Config {
         };
 
         if !config.credentials.is_empty() {
+            save_credential_to_keyring(&config.credentials)?; // migrate
             config.credentials.clear();
-            config.save()?;
+            config.save_toml_only()?;
         }
 
         config.credentials = load_credentials_from_keyring()?;
@@ -71,6 +72,13 @@ impl Config {
             save_credential_to_keyring(&self.credentials)?;
         }
 
+        Ok(())
+    }
+
+    pub fn save_toml_only(&self) -> anyhow::Result<()> {
+        // needed for macOS not to ask for password many times
+        let content = self.to_toml()?;
+        std::fs::write(get_config_path(), content)?;
         Ok(())
     }
 
