@@ -1,24 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
     <id>io.github.alsofelix.crabdrop</id>
-    <name>crabdrop</name>
+    <name>Crabdrop</name>
     <summary>S3-compatible file manager</summary>
     <metadata_license>CC0-1.0</metadata_license>
     <project_license>MIT</project_license>
     <description>
         <p>
-            A simple, fast file manager for S3-compatible storage. Works with AWS S3,
-            Cloudflare R2, MinIO, and any S3-compatible service.
+            A simple and fast app to manage files stored online.
+            Easily connect to popular cloud storage services
+            and move files between your computer and the cloud.
         </p>
+
         <p>Features:</p>
         <ul>
-            <li>Browse, upload, and download files</li>
+            <li>Browse files and folders</li>
+            <li>Upload and download files</li>
             <li>Drag and drop uploads</li>
-            <li>Multipart upload for large files</li>
-            <li>Folder upload support</li>
-            <li>Upload progress tracking</li>
+            <li>Upload large files reliably</li>
+            <li>See upload progress in real time</li>
         </ul>
+
+        <p>
+            Works with AWS S3, Cloudflare R2, MinIO,
+            and other compatible cloud storage services.
+        </p>
     </description>
+
     <launchable type="desktop-id">io.github.alsofelix.crabdrop.desktop</launchable>
     <categories>
         <category>Utility</category>
@@ -45,6 +53,17 @@
     </branding>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="0.1.6" date="2026-01-30">
+            <description>
+                <ul>
+                    <li>Moved credential storage to the system keyring via Secret Service</li>
+                    <li>Removed secrets from on-disk configuration files</li>
+                    <li>Improved settings flow to safely update credentials without re-entering them</li>
+                    <li>Fixed repeated password prompts caused by legacy configuration data</li>
+                </ul>
+            </description>
+        </release>
+
         <release version="0.1.4" date="2026-01-29">
             <description>
                 <ul>
