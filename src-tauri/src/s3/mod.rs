@@ -30,53 +30,67 @@ impl S3Client {
 
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
         let mut vector: Vec<File> = Vec::new();
+        let mut continuation_token: Option<String> = None;
 
-        // need to make this use continuation tokens like delete_prefix, this won't show more than 1000 objs
-        let objs = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.bucket_name)
-            .prefix(prefix)
-            .delimiter("/")
-            .send()
-            .await?;
+        loop {
+            let mut request = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket_name)
+                .prefix(prefix)
+                .delimiter("/");
 
-        for file in objs.contents() {
-            let key = file
-                .key()
-                .ok_or(anyhow::anyhow!("Expected a key"))?
-                .to_string();
-            let f = File {
-                name: key.split("/").last().unwrap_or(&key).to_string(),
-                key,
-                size: file.size(),
-                is_folder: false,
-                last_modified: file.last_modified().map(|d| d.secs()),
-            };
-            vector.push(f)
+            if let Some(token) = continuation_token.take() {
+                request = request.continuation_token(token);
+            }
+
+            let objs = request.send().await?;
+
+            for file in objs.contents() {
+                let key = file
+                    .key()
+                    .ok_or(anyhow::anyhow!("Expected a key"))?
+                    .to_string();
+                let f = File {
+                    name: key.split("/").last().unwrap_or(&key).to_string(),
+                    key,
+                    size: file.size(),
+                    is_folder: false,
+                    last_modified: file.last_modified().map(|d| d.secs()),
+                };
+                vector.push(f)
+            }
+
+            for folder in objs.common_prefixes() {
+                let key = folder
+                    .prefix()
+                    .ok_or(anyhow::anyhow!("Expected a key"))?
+                    .to_string();
+
+                let f = File {
+                    name: key
+                        .trim_end_matches("/")
+                        .split("/")
+                        .last()
+                        .unwrap_or(&key)
+                        .to_string(),
+                    key,
+                    size: None,
+                    is_folder: true,
+                    last_modified: None,
+                };
+
+                vector.push(f);
+            }
+
+            if objs.is_truncated() == Some(true) {
+                continuation_token = objs.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
         }
 
-        for folder in objs.common_prefixes() {
-            let key = folder
-                .prefix()
-                .ok_or(anyhow::anyhow!("Expected a key"))?
-                .to_string();
-
-            let f = File {
-                name: key
-                    .trim_end_matches("/")
-                    .split("/")
-                    .last()
-                    .unwrap_or(&key)
-                    .to_string(),
-                key,
-                size: None,
-                is_folder: true,
-                last_modified: None,
-            };
-
-            vector.push(f);
-        }
+        vector.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         Ok(vector)
     }
