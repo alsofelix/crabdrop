@@ -24,6 +24,7 @@ let uploadState: UploadState = {
     currentFile: 0,
     totalFiles: 0,
 };
+
 interface DownloadState {
     active: boolean;
     filename: string;
@@ -55,14 +56,10 @@ interface StorageConfig {
     region: string
 }
 
-interface CredentialsConfig {
-    access_key_id: string;
-    secret_access_key: string | null;
-}
-
 interface Config {
     storage: StorageConfig;
-    credentials: CredentialsConfig
+    access_key_id: string,
+    has_secret: boolean,
 }
 
 interface DropPayload {
@@ -113,7 +110,7 @@ async function init() {
 
 async function downloadFile(file: File): Promise<void> {
     try {
-        await invoke("download_file", { key: file.key, filename: file.name });
+        await invoke("download_file", {key: file.key, filename: file.name});
     } catch (e) {
         console.error("Download failed:", e);
     }
@@ -121,7 +118,7 @@ async function downloadFile(file: File): Promise<void> {
 
 async function deleteFile(file: File): Promise<void> {
     try {
-        await invoke("delete_file", { key: file.key, isFolder: file.isFolder });
+        await invoke("delete_file", {key: file.key, isFolder: file.isFolder});
         await loadFiles(currentPath);
     } catch (e) {
         console.error("Delete failed:", e);
@@ -479,8 +476,15 @@ function setUpSettingsButton() {
             (document.getElementById("endpoint") as HTMLInputElement).value = config.storage.endpoint;
             (document.getElementById("bucket") as HTMLInputElement).value = config.storage.bucket;
             (document.getElementById("region") as HTMLInputElement).value = config.storage.region;
-            (document.getElementById("access-key") as HTMLInputElement).value = config.credentials.access_key_id;
-            (document.getElementById("secret-key") as HTMLInputElement).value = config.credentials.secret_access_key || "";
+            (document.getElementById("access-key") as HTMLInputElement).value = config.access_key_id;
+
+            const secretEl = document.getElementById("secret-key") as HTMLInputElement;
+
+            secretEl.value = "";
+            secretEl.placeholder = config.has_secret
+                ? "Saved in Keychain (leave blank to keep)"
+                : "Enter secret key";
+
             showScreen("setup");
         } catch (err) {
             console.error(err);
