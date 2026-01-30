@@ -31,6 +31,7 @@ impl S3Client {
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
         let mut vector: Vec<File> = Vec::new();
 
+        // need to make this use continuation tokens like delete_prefix, this won't show more than 1000 objs
         let objs = self
             .client
             .list_objects_v2()
@@ -135,6 +136,63 @@ impl S3Client {
             .key(key)
             .send()
             .await?;
+        Ok(())
+    }
+
+    pub async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<()> {
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let mut request = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket_name)
+                .prefix(prefix);
+
+            if let Some(token) = continuation_token.take() {
+                request = request.continuation_token(token);
+            }
+
+            let response = request.send().await?;
+
+            let keys: Vec<String> = response
+                .contents()
+                .iter()
+                .filter_map(|obj| obj.key().map(|k| k.to_string()))
+                .collect();
+
+            for chunk in keys.chunks(1000) {
+                let delete_objects: Vec<_> = chunk
+                    .iter()
+                    .map(|key| {
+                        aws_sdk_s3::types::ObjectIdentifier::builder()
+                            .key(key)
+                            .build()
+                            .unwrap()
+                    })
+                    .collect();
+
+                if !delete_objects.is_empty() {
+                    self.client
+                        .delete_objects()
+                        .bucket(&self.bucket_name)
+                        .delete(
+                            aws_sdk_s3::types::Delete::builder()
+                                .set_objects(Some(delete_objects))
+                                .build()?,
+                        )
+                        .send()
+                        .await?;
+                }
+            }
+
+            if response.is_truncated() == Some(true) {
+                continuation_token = response.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+
         Ok(())
     }
 

@@ -260,12 +260,14 @@ pub async fn delete_file(
     key: &str,
     is_folder: bool,
 ) -> Result<(), String> {
-    if is_folder {
-        // deleting folders not yet!
-        return Ok(());
-    }
     let guard = state.lock().await;
     let client = guard.as_ref().ok_or("Not configured")?;
+
+
+    if is_folder {
+        client.delete_prefix(key).await.map_err(|e| e.to_string())?;
+        return Ok(());
+    }
 
     client.delete_file(key).await.map_err(|e| e.to_string())?;
 
