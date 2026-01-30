@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::s3::S3Client;
+use crate::types::UiConfig;
 use crate::{config, types};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,10 +78,16 @@ pub async fn save_config(
 }
 
 #[tauri::command]
-pub async fn get_config() -> Result<Config, String> {
+pub async fn get_config() -> Result<types::UiConfig, String> {
     let config = config::Config::load().map_err(|e| e.to_string())?;
 
-    Ok(config)
+    let ui_config = UiConfig {
+        storage: config.storage,
+        access_key_id: config.credentials.access_key_id,
+        has_secret: !config.credentials.secret_access_key.is_empty(),
+    };
+
+    Ok(ui_config)
 }
 
 #[tauri::command]
@@ -262,7 +268,6 @@ pub async fn delete_file(
 ) -> Result<(), String> {
     let guard = state.lock().await;
     let client = guard.as_ref().ok_or("Not configured")?;
-
 
     if is_folder {
         client.delete_prefix(key).await.map_err(|e| e.to_string())?;

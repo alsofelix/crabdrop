@@ -117,8 +117,6 @@ fn load_credentials_from_keyring() -> anyhow::Result<CredentialsConfig> {
 }
 
 fn save_credential_to_keyring(credentials_config: &CredentialsConfig) -> anyhow::Result<()> {
-    println!("HERE4");
-
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)?;
 
     let payload = serde_json::json!({
