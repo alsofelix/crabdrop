@@ -57,22 +57,22 @@ pub async fn save_config(
     bucket: String,
     region: String,
     access_key: String,
-    secret_key: String,
+    secret_key: Option<String>,
 ) -> Result<(), String> {
-    let config = config::Config {
-        storage: config::StorageConfig {
-            endpoint,
-            bucket,
-            region,
-        },
-        credentials: config::CredentialsConfig {
-            access_key_id: access_key,
-            secret_access_key: secret_key,
-        },
-    };
-    config.save().map_err(|e| e.to_string())?;
+    let mut config_curr = config::Config::load().map_err(|e| e.to_string())?;
+
+    config_curr.storage.endpoint = endpoint;
+    config_curr.storage.bucket = bucket;
+    config_curr.storage.region = region;
+    config_curr.credentials.access_key_id = access_key;
+
+    if let Some(x) = secret_key.filter(|x1| !x1.trim().is_empty()) {
+        config_curr.credentials.secret_access_key = x;
+    }
+
+    config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
-    let client = S3Client::new(&config).map_err(|e1| e1.to_string())?;
+    let client = S3Client::new(&config_curr).map_err(|e1| e1.to_string())?;
     *guard = Some(client);
     Ok(())
 }
