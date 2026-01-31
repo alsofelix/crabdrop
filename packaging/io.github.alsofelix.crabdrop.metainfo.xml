@@ -53,6 +53,13 @@
     </branding>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="0.1.8" date="2026-01-29">
+            <description>
+                <ul>
+                    <li>Fixed a bug where you could not upload multiple files at once</li>
+                </ul>
+            </description>
+        </release>
         <release version="0.1.6" date="2026-01-30">
             <description>
                 <ul>
