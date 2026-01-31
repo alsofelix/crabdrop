@@ -12,6 +12,7 @@ use tauri::Emitter;
 const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
 
+#[derive(Clone)]
 pub struct S3Client {
     client: Client,
     bucket_name: String,
@@ -101,6 +102,7 @@ impl S3Client {
         path: &Path,
         app: &tauri::AppHandle,
         emit_event: bool,
+        upload_id: &str,
     ) -> anyhow::Result<()> {
         let size = std::fs::metadata(path)?.len();
 
@@ -110,6 +112,7 @@ impl S3Client {
                 app.emit(
                     "upload_start",
                     serde_json::json!({
+                        "uploadId": upload_id,
                         "filename": path.file_name().unwrap().to_string_lossy(),
                         "multipart": false,
                         "isFolder": false,
@@ -119,10 +122,14 @@ impl S3Client {
             }
             self.upload_file(key, data).await?;
             if emit_event {
-                app.emit("upload_complete", serde_json::json!({})).ok();
+                app.emit(
+                    "upload_complete",
+                    serde_json::json!({"uploadId": upload_id}),
+                )
+                .ok();
             }
         } else {
-            self.upload_file_multipart(key, path, app, emit_event)
+            self.upload_file_multipart(key, path, app, emit_event, &upload_id)
                 .await?;
         }
 
@@ -238,6 +245,7 @@ impl S3Client {
         path: &Path,
         app: &tauri::AppHandle,
         emit_events: bool,
+        upload_id_: &str,
     ) -> anyhow::Result<()> {
         let con = self
             .client
@@ -259,6 +267,7 @@ impl S3Client {
             app.emit(
                 "upload_start",
                 serde_json::json!({
+                    "uploadId": upload_id_,
                     "filename": path.file_name().unwrap().to_string_lossy(),
                     "multipart": true,
                     "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
@@ -285,7 +294,7 @@ impl S3Client {
                 .upload_part()
                 .bucket(&self.bucket_name)
                 .key(key)
-                .upload_id(upload_id)
+                .upload_id(upload_id_)
                 .part_number((completed_parts.len() + 1) as i32)
                 .body(ByteStream::from(buffer))
                 .send()
@@ -304,6 +313,7 @@ impl S3Client {
                 app.emit(
                     "upload_progress",
                     serde_json::json!({
+                        "uploadId": upload_id_,
                         "filename": path.file_name().unwrap().to_string_lossy(),
                         "part": completed_parts.len(),
                         "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
@@ -327,7 +337,11 @@ impl S3Client {
             .await?;
 
         if emit_events {
-            app.emit("upload_complete", serde_json::json!({})).ok();
+            app.emit(
+                "upload_complete",
+                serde_json::json!({"uploadId": upload_id_}),
+            )
+            .ok();
         }
         Ok(())
     }

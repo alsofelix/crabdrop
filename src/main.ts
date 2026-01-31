@@ -2,6 +2,7 @@ import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 
 interface UploadState {
+    id: string;
     active: boolean;
     filename: string;
     isMultipart: boolean;
@@ -13,17 +14,11 @@ interface UploadState {
     totalFiles: number;
 }
 
-let uploadState: UploadState = {
-    active: false,
-    filename: "",
-    isMultipart: false,
-    percent: -1,
-    part: 0,
-    totalParts: 0,
-    isFolder: false,
-    currentFile: 0,
-    totalFiles: 0,
-};
+const uploadStates = new Map<string, UploadState>();
+
+function generateUploadId(): string {
+    return crypto.randomUUID();
+}
 
 interface DownloadState {
     active: boolean;
@@ -80,12 +75,14 @@ async function loadFiles(prefix: string): Promise<void> {
     }
 }
 
-async function uploadPath(localPath: string, targetPrefix: string): Promise<void> {
+async function uploadPath(localPath: string, targetPrefix: string, uploadId: string): Promise<void> {
     try {
-        await invoke("upload_path", {localPath, targetPrefix});
+        await invoke("upload_path", {localPath, targetPrefix, uploadId});
         console.log("Uploaded:", targetPrefix);
     } catch (e) {
         console.error("Upload failed:", e);
+        uploadStates.delete(uploadId);
+        renderUploadOverlay();
     }
 }
 
@@ -170,12 +167,64 @@ function showScreen(screen: "setup" | "browser") {
     document.getElementById("browser-screen")!.classList.toggle("hidden", screen !== "browser");
 }
 
-function showUploadOverlay() {
-    document.getElementById("upload-overlay")!.classList.remove("hidden");
+function renderUploadOverlay() {
+    const panel = document.getElementById("upload-panel")!;
+    const list = document.getElementById("upload-list")!;
+    const title = document.getElementById("upload-panel-title")!;
+
+    if (uploadStates.size === 0) {
+        panel.classList.add("hidden");
+        return;
+    }
+
+    panel.classList.remove("hidden");
+    title.textContent = uploadStates.size === 1 ? "Uploading" : `Uploading (${uploadStates.size})`;
+    list.innerHTML = "";
+
+    for (const [id, state] of uploadStates) {
+        const item = createUploadItem(id, state);
+        list.appendChild(item);
+    }
 }
 
-function hideUploadOverlay() {
-    document.getElementById("upload-overlay")!.classList.add("hidden");
+function createUploadItem(id: string, state: UploadState): HTMLElement {
+    const template = document.getElementById("upload-item-template") as HTMLTemplateElement;
+    const fragment = template.content.cloneNode(true) as DocumentFragment;
+    const root = fragment.querySelector(".upload-item") as HTMLElement;
+
+    root.dataset.uploadId = id;
+
+    const fill = root.querySelector(".upload-progress-fill") as HTMLElement;
+    if (state.percent < 0) {
+        fill.classList.add("indeterminate");
+    } else {
+        fill.style.width = `${state.percent}%`;
+    }
+
+    root.querySelector(".upload-icon")!.textContent = state.isFolder ? "📁" : "📄";
+    root.querySelector(".upload-name")!.textContent = state.filename;
+    root.querySelector(".upload-percent")!.textContent = state.percent < 0 ? "" : `${state.percent}%`;
+
+    const details = root.querySelector(".upload-details")!;
+    if (state.isMultipart && state.totalParts > 0) {
+        const partInfo = document.createElement("span");
+        partInfo.className = "upload-part-info";
+        partInfo.textContent = `Part ${state.part}/${state.totalParts}`;
+        details.appendChild(partInfo);
+    }
+    if (state.isFolder && state.totalFiles > 0) {
+        const fileInfo = document.createElement("span");
+        fileInfo.className = "upload-file-info";
+        fileInfo.textContent = `${state.currentFile}/${state.totalFiles} files`;
+        details.appendChild(fileInfo);
+    }
+
+    root.querySelector(".upload-item-close")!.addEventListener("click", () => {
+        uploadStates.delete(id);
+        renderUploadOverlay();
+    });
+
+    return root;
 }
 
 function showDownloadOverlay() {
@@ -186,38 +235,24 @@ function hideDownloadOverlay() {
     document.getElementById("download-overlay")!.classList.add("hidden");
 }
 
-function updateUploadUI() {
-    const nameEl = document.getElementById("upload-name")!;
-    const fillEl = document.getElementById("upload-progress-fill")!;
-    const percentEl = document.getElementById("upload-percent")!;
-    const partEl = document.getElementById("upload-part-info")!;
-    const fileEl = document.getElementById("upload-file-info")!;
-
-    nameEl.textContent = uploadState.filename;
-
-    if (uploadState.percent < 0) {
-        fillEl.classList.add("indeterminate");
-        fillEl.style.width = "";
-        percentEl.textContent = "";
-    } else {
-        fillEl.classList.remove("indeterminate");
-        fillEl.style.width = uploadState.percent + "%";
-        percentEl.textContent = uploadState.percent + "%";
+function getOrCreateUploadState(uploadId: string): UploadState {
+    let state = uploadStates.get(uploadId);
+    if (!state) {
+        state = {
+            id: uploadId,
+            active: true,
+            filename: "",
+            isMultipart: false,
+            percent: -1,
+            part: 0,
+            totalParts: 0,
+            isFolder: false,
+            currentFile: 0,
+            totalFiles: 0,
+        };
+        uploadStates.set(uploadId, state);
     }
-
-    if (uploadState.isMultipart && uploadState.totalParts > 0) {
-        partEl.textContent = `Part ${uploadState.part}/${uploadState.totalParts} • Multipart`;
-        partEl.classList.remove("hidden");
-    } else {
-        partEl.classList.add("hidden");
-    }
-
-    if (uploadState.isFolder && uploadState.totalFiles > 0) {
-        fileEl.textContent = `File ${uploadState.currentFile} of ${uploadState.totalFiles}`;
-        fileEl.classList.remove("hidden");
-    } else {
-        fileEl.classList.add("hidden");
-    }
+    return state;
 }
 
 function updateDownloadUI() {
@@ -253,51 +288,75 @@ function updateDownloadUI() {
 }
 
 function setupUploadEvents() {
-    document.getElementById("upload-close")?.addEventListener("click", () => {
-        hideUploadOverlay();
+    document.getElementById("upload-panel-close")?.addEventListener("click", () => {
+        uploadStates.clear();
+        renderUploadOverlay();
     });
 
     listen("upload_start", (event: any) => {
         const data = event.payload;
-        uploadState = {
-            active: true,
-            filename: data.filename,
-            isMultipart: data.multipart || false,
-            percent: data.multipart ? 0 : -1,
-            part: 0,
-            totalParts: data.totalParts || 0,
-            isFolder: data.isFolder || false,
-            currentFile: data.currentFile || 0,
-            totalFiles: data.totalFiles || 0,
-        };
-        showUploadOverlay();
-        updateUploadUI();
+        const uploadId = data.uploadId;
+        if (!uploadId) return;
+
+        const state = getOrCreateUploadState(uploadId);
+        state.filename = data.filename;
+        state.isMultipart = data.multipart || false;
+        state.percent = data.multipart ? 0 : -1;
+        state.part = 0;
+        state.totalParts = data.totalParts || 0;
+        state.isFolder = data.isFolder || false;
+        state.currentFile = data.currentFile || 0;
+        state.totalFiles = data.totalFiles || 0;
+
+        renderUploadOverlay();
     });
 
     listen("upload_progress", (event: any) => {
         const data = event.payload;
-        uploadState.part = data.part;
-        uploadState.totalParts = data.totalParts;
-        uploadState.percent = Math.round((data.part / data.totalParts) * 100);
-        if (data.filename) uploadState.filename = data.filename;
-        updateUploadUI();
+        const uploadId = data.uploadId;
+        if (!uploadId) return;
+
+        const state = uploadStates.get(uploadId);
+        if (!state) return;
+
+        state.part = data.part;
+        state.totalParts = data.totalParts;
+        state.percent = Math.round((data.part / data.totalParts) * 100);
+        if (data.filename) state.filename = data.filename;
+
+        renderUploadOverlay();
     });
 
     listen("folder_progress", (event: any) => {
         const data = event.payload;
-        uploadState.currentFile = data.currentFile;
-        uploadState.totalFiles = data.totalFiles;
-        if (data.filename) uploadState.filename = data.filename;
-        uploadState.isFolder = true;
-        updateUploadUI();
+        const uploadId = data.uploadId;
+        if (!uploadId) return;
+
+        const state = uploadStates.get(uploadId);
+        if (!state) return;
+
+        state.currentFile = data.currentFile;
+        state.totalFiles = data.totalFiles;
+        if (data.filename) state.filename = data.filename;
+        state.isFolder = true;
+
+        renderUploadOverlay();
     });
 
-    listen("upload_complete", (_event: any) => {
-        uploadState.percent = 100;
-        updateUploadUI();
+    listen("upload_complete", (event: any) => {
+        const data = event.payload || {};
+        const uploadId = data.uploadId;
+        if (!uploadId) return;
+
+        const state = uploadStates.get(uploadId);
+        if (!state) return;
+
+        state.percent = 100;
+        renderUploadOverlay();
+
         setTimeout(() => {
-            hideUploadOverlay();
-            uploadState.active = false;
+            uploadStates.delete(uploadId);
+            renderUploadOverlay();
         }, 1000);
     });
 }
@@ -516,11 +575,14 @@ function setupDropZone(): void {
 }
 
 async function handleFileDrop(paths: string[]): Promise<void> {
-    for (const path of paths) {
+    const uploadPromises = paths.map((path) => {
         const filename = getFilenameFromPath(path);
         const targetPrefix = currentPath + filename;
-        await uploadPath(path, targetPrefix);
-    }
+        const uploadId = generateUploadId();
+        return uploadPath(path, targetPrefix, uploadId);
+    });
+
+    await Promise.all(uploadPromises);
     await loadFiles(currentPath);
 }
 

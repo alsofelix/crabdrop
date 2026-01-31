@@ -268,22 +268,19 @@ header h1 {
     color: #fff;
 }
 
-.upload-overlay {
+.upload-panel {
     position: fixed;
     bottom: 20px;
     right: 20px;
     z-index: 1000;
-}
-
-.upload-card {
+    width: 340px;
     background: #2a2a2a;
     border-radius: 12px;
-    width: 320px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     overflow: hidden;
 }
 
-.upload-header {
+.upload-panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -292,7 +289,7 @@ header h1 {
     font-weight: 500;
 }
 
-.upload-close {
+.upload-panel-close {
     background: none;
     border: none;
     color: #888;
@@ -302,58 +299,83 @@ header h1 {
     border-radius: 4px;
 }
 
-.upload-close:hover {
+.upload-panel-close:hover {
     background: #444;
     color: #fff;
 }
 
-.upload-body {
-    padding: 16px;
+.upload-list {
+    max-height: 320px;
+    overflow-y: auto;
 }
 
-.upload-filename {
+.upload-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid #333;
+}
+
+.upload-item:last-child {
+    border-bottom: none;
+}
+
+.upload-item-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .upload-icon {
-    font-size: 1.4em;
+    font-size: 1em;
+    flex-shrink: 0;
 }
 
-#upload-name {
+.upload-name {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.95em;
+    font-size: 0.9em;
 }
 
-.upload-progress-container {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
+.upload-percent {
+    font-size: 0.85em;
+    color: #888;
+    min-width: 36px;
+    text-align: right;
+}
+
+.upload-item-close {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 0.9em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.upload-item-close:hover {
+    background: #3a3a3a;
+    color: #fff;
 }
 
 .upload-progress-bar {
-    flex: 1;
-    height: 8px;
+    height: 4px;
     background: #1a1a1a;
-    border-radius: 4px;
+    border-radius: 2px;
     overflow: hidden;
 }
 
 .upload-progress-fill {
     height: 100%;
     background: #ff6b35;
-    border-radius: 4px;
+    border-radius: 2px;
     width: 0%;
     transition: width 0.3s ease;
 }
 
-/* Indeterminate animation for small files */
 .upload-progress-fill.indeterminate {
     width: 30%;
     animation: indeterminate 1.5s ease-in-out infinite;
@@ -371,26 +393,23 @@ header h1 {
     }
 }
 
-.upload-percent {
-    font-size: 0.9em;
-    color: #888;
-    min-width: 40px;
-    text-align: right;
-}
-
 .upload-details {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.85em;
+    gap: 8px;
+    font-size: 0.75em;
     color: #666;
+    margin-top: 6px;
 }
 
-#upload-part-info {
+.upload-details:empty {
+    display: none;
+}
+
+.upload-part-info {
     color: #ff6b35;
 }
 
-#upload-file-info {
+.upload-file-info {
     color: #888;
 }
 

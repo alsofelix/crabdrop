@@ -117,9 +117,12 @@ pub async fn upload_path(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     local_path: String,
     target_prefix: String,
+    upload_id: String,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     let path = Path::new(&local_path);
 
@@ -127,7 +130,7 @@ pub async fn upload_path(
 
     if metadata.is_file() {
         client
-            .det_upload(&target_prefix, path, &app, true)
+            .det_upload(&target_prefix, path, &app, true, &upload_id)
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -141,6 +144,7 @@ pub async fn upload_path(
         app.emit(
             "upload_start",
             serde_json::json!({
+                "uploadId": upload_id,
                 "filename": path.file_name().unwrap().to_string_lossy(),
                 "multipart": false,
                 "isFolder": true,
@@ -164,6 +168,7 @@ pub async fn upload_path(
                 app.emit(
                     "folder_progress",
                     serde_json::json!({
+                        "uploadId": upload_id,
                         "filename": relative.to_string_lossy(),
                         "currentFile": x,
                         "totalFiles": total_files,
@@ -172,13 +177,17 @@ pub async fn upload_path(
                 .ok();
 
                 client
-                    .det_upload(&key, file_path, &app, false)
+                    .det_upload(&key, file_path, &app, false, &upload_id)
                     .await
                     .map_err(|e| e.to_string())?;
                 x += 1;
             }
         }
-        app.emit("upload_complete", serde_json::json!({})).ok();
+        app.emit(
+            "upload_complete",
+            serde_json::json!({"uploadId": upload_id}),
+        )
+        .ok();
         Ok(())
     } else {
         Err("Unable to add file".to_string())
