@@ -294,7 +294,7 @@ impl S3Client {
                 .upload_part()
                 .bucket(&self.bucket_name)
                 .key(key)
-                .upload_id(upload_id_)
+                .upload_id(upload_id)
                 .part_number((completed_parts.len() + 1) as i32)
                 .body(ByteStream::from(buffer))
                 .send()
