@@ -113,7 +113,7 @@ impl S3Client {
                     "upload_start",
                     serde_json::json!({
                         "uploadId": upload_id,
-                        "filename": path.file_name().unwrap().to_string_lossy(),
+                        "filename": path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid path"))?.to_string_lossy(),
                         "multipart": false,
                         "isFolder": false,
                     }),
@@ -189,9 +189,8 @@ impl S3Client {
                         aws_sdk_s3::types::ObjectIdentifier::builder()
                             .key(key)
                             .build()
-                            .unwrap()
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 if !delete_objects.is_empty() {
                     self.client
@@ -268,7 +267,7 @@ impl S3Client {
                 "upload_start",
                 serde_json::json!({
                     "uploadId": upload_id_,
-                    "filename": path.file_name().unwrap().to_string_lossy(),
+                    "filename": path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid path"))?.to_string_lossy(),
                     "multipart": true,
                     "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
                     "isFolder": false,
@@ -304,7 +303,7 @@ impl S3Client {
 
             let completed_part = CompletedPart::builder()
                 .part_number((completed_parts.len() + 1) as i32)
-                .e_tag(part.e_tag().unwrap().to_string())
+                .e_tag(part.e_tag().ok_or_else(|| anyhow::anyhow!("Missing ETag"))?)
                 .build();
 
             completed_parts.push(completed_part);
@@ -314,7 +313,7 @@ impl S3Client {
                     "upload_progress",
                     serde_json::json!({
                         "uploadId": upload_id_,
-                        "filename": path.file_name().unwrap().to_string_lossy(),
+                        "filename": path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid path"))?.to_string_lossy(),
                         "part": completed_parts.len(),
                         "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
                     }),

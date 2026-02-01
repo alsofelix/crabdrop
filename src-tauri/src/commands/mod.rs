@@ -145,7 +145,7 @@ pub async fn upload_path(
             "upload_start",
             serde_json::json!({
                 "uploadId": upload_id,
-                "filename": path.file_name().unwrap().to_string_lossy(),
+                "filename": path.file_name().ok_or("Invalid path")?.to_string_lossy(),
                 "multipart": false,
                 "isFolder": true,
                 "totalFiles": total_files

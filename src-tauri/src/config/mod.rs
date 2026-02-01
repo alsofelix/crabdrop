@@ -64,7 +64,7 @@ impl Config {
 
     pub fn save(&self) -> anyhow::Result<()> {
         let content = self.to_toml()?;
-        let config_path = get_config_path();
+        let config_path = get_config_path()?;
 
         std::fs::write(config_path, content)?;
 
@@ -78,7 +78,7 @@ impl Config {
     pub fn save_toml_only(&self) -> anyhow::Result<()> {
         // needed for macOS not to ask for password many times
         let content = self.to_toml()?;
-        std::fs::write(get_config_path(), content)?;
+        std::fs::write(get_config_path()?, content)?;
         Ok(())
     }
 
@@ -90,18 +90,20 @@ impl Config {
     }
 }
 
-fn get_config_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap()
+fn get_config_path() -> anyhow::Result<PathBuf> {
+    Ok(dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?
         .join("crabdrop")
-        .join("config.toml")
+        .join("config.toml"))
 }
 
 fn ensure_config_existance() -> anyhow::Result<PathBuf> {
-    let config_path = get_config_path();
+    let config_path = get_config_path()?;
 
     if !config_path.exists() {
-        std::fs::create_dir_all(config_path.parent().unwrap())?;
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
         let default_config = Config::default();
         let toml = toml::to_string_pretty(&default_config)?;
