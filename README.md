@@ -32,14 +32,13 @@ Run `flatpak install flathub io.github.alsofelix.crabdrop`
 
 ## Building from source
 
-Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/), and [Bun](https://bun.sh/).
+Requires [Rust](https://rust-lang.org/tools/install/) and [Bun](https://bun.sh/).
 
 ```bash
 git clone https://github.com/alsofelix/crabdrop.git
 cd crabdrop
 bun install
-cd src-tauri
-cargo tauri build
+bun tauri build
 ```
 
 ## License
