@@ -503,11 +503,21 @@ function createFileItem(file: File): HTMLElement {
     const item = document.createElement("div");
     item.className = "file-item";
 
-    item.innerHTML = `
-    <span class="icon">${file.isFolder ? "📁" : "📄"}</span>
-    <span class="name">${file.name}</span>
-    <span class="size">${file.isFolder ? "" : formatSize(file.size)}</span>
-  `;
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = file.isFolder ? "📁" : "📄";
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = file.name;
+
+    const size = document.createElement("span");
+    size.className = "size";
+    size.textContent = file.isFolder ? "" : formatSize(file.size);
+
+    item.appendChild(icon);
+    item.appendChild(name);
+    item.appendChild(size);
 
     item.addEventListener("click", () => handleFileClick(file));
     item.addEventListener("contextmenu", (e) => showContextMenu(e, file));
