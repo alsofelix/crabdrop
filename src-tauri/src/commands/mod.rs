@@ -287,3 +287,17 @@ pub async fn delete_file(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn generate_presigned_url(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+    key: &str,
+    expiry_secs: u64
+) -> Result<String, String> {
+    let guard = state.lock().await;
+    let client = guard.as_ref().ok_or("Not configured")?;
+
+    let url = client.gen_presigned_url(key, expiry_secs).await.map_err(|e| e.to_string())?;
+
+    Ok(url)
+}

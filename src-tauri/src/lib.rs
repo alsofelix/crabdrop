@@ -29,6 +29,7 @@ pub fn run() {
             commands::upload_path,
             commands::download_file,
             commands::delete_file,
+            commands::generate_presigned_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

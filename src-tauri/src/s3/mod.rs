@@ -2,11 +2,13 @@ use crate::config::Config;
 use crate::types::File;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
+use std::time::Duration;
 use tauri::Emitter;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
@@ -303,7 +305,10 @@ impl S3Client {
 
             let completed_part = CompletedPart::builder()
                 .part_number((completed_parts.len() + 1) as i32)
-                .e_tag(part.e_tag().ok_or_else(|| anyhow::anyhow!("Missing ETag"))?)
+                .e_tag(
+                    part.e_tag()
+                        .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
+                )
                 .build();
 
             completed_parts.push(completed_part);
@@ -343,6 +348,20 @@ impl S3Client {
             .ok();
         }
         Ok(())
+    }
+
+    pub async fn gen_presigned_url(&self, key: &str, expiry_secs: u64) -> anyhow::Result<String> {
+        let config = PresigningConfig::expires_in(Duration::from_secs(expiry_secs))?;
+
+        let url = self
+            .client
+            .get_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .presigned(config)
+            .await?;
+
+        Ok(url.uri().to_string())
     }
 }
 
