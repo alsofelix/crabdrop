@@ -158,7 +158,37 @@
 </div>
 <div id="context-menu" class="context-menu hidden">
     <button id="ctx-download">⬇️ Download</button>
+    <button id="ctx-share">🔗 Share</button>
     <button id="ctx-delete">🗑️ Delete</button>
+</div>
+
+<div id="share-modal" class="modal hidden">
+    <div class="modal-content share-modal-content">
+        <h3>Share File</h3>
+        <p id="share-filename" class="share-filename"></p>
+
+        <div class="form-group">
+            <label for="share-expiry">Link expires in</label>
+            <select id="share-expiry">
+                <option value="900">15 minutes</option>
+                <option value="3600" selected>1 hour</option>
+                <option value="86400">24 hours</option>
+                <option value="604800">7 days</option>
+            </select>
+        </div>
+
+        <div id="share-url-container" class="share-url-container hidden">
+            <input type="text" id="share-url" readonly />
+            <button id="share-copy">Copy</button>
+        </div>
+
+        <div id="share-error" class="error hidden"></div>
+
+        <div class="modal-buttons">
+            <button id="share-cancel">Cancel</button>
+            <button id="share-generate">Generate Link</button>
+        </div>
+    </div>
 </div>
 </body>
 </html>

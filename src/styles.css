@@ -445,3 +445,80 @@ header h1 {
     background: rgba(255, 100, 100, 0.2);
     color: #ff6464;
 }
+
+/* Share Modal */
+.share-modal-content {
+    min-width: 360px;
+}
+
+.share-filename {
+    color: #888;
+    font-size: 0.9em;
+    margin-bottom: 16px;
+    word-break: break-all;
+}
+
+.share-modal-content select {
+    width: 100%;
+    padding: 10px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 1em;
+    cursor: pointer;
+}
+
+.share-modal-content select:focus {
+    outline: none;
+    border-color: #ff6b35;
+}
+
+.share-url-container {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.share-url-container input {
+    flex: 1;
+    padding: 10px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.85em;
+}
+
+.share-url-container button {
+    padding: 10px 16px;
+    background: #ff6b35;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.share-url-container button:hover {
+    background: #e55a25;
+}
+
+.share-url-container button.copied {
+    background: #4caf50;
+}
+
+#share-generate {
+    background: #ff6b35;
+    color: #fff;
+}
+
+#share-generate:hover {
+    background: #e55a25;
+}
+
+#share-generate:disabled {
+    background: #555;
+    cursor: not-allowed;
+}

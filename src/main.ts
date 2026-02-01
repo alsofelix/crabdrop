@@ -95,6 +95,7 @@ async function init() {
     setupUploadEvents();
     setupDownloadEvents();
     setupContextMenu();
+    setupShareModal();
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
@@ -453,8 +454,10 @@ function showContextMenu(e: MouseEvent, file: File): void {
 
     const menu = document.getElementById("context-menu")!;
     const downloadBtn = document.getElementById("ctx-download")!;
+    const shareBtn = document.getElementById("ctx-share")!;
 
     downloadBtn.classList.toggle("hidden", file.isFolder);
+    shareBtn.classList.toggle("hidden", file.isFolder);
 
     menu.style.left = e.clientX + "px";
     menu.style.top = e.clientY + "px";
@@ -484,6 +487,13 @@ function setupContextMenu(): void {
     document.getElementById("ctx-delete")?.addEventListener("click", () => {
         if (selectedFile) {
             deleteFile(selectedFile);
+        }
+        hideContextMenu();
+    });
+
+    document.getElementById("ctx-share")?.addEventListener("click", () => {
+        if (selectedFile && !selectedFile.isFolder) {
+            showShareModal(selectedFile);
         }
         hideContextMenu();
     });
@@ -629,6 +639,88 @@ function setupFolderModal() {
 function setupEventListeners(): void {
     document.getElementById("btn-back")?.addEventListener("click", navigateUp);
     document.getElementById("btn-refresh")?.addEventListener("click", () => loadFiles(currentPath));
+}
+
+function showShareModal(file: File): void {
+    const modal = document.getElementById("share-modal")!;
+    const filenameEl = document.getElementById("share-filename")!;
+    const urlContainer = document.getElementById("share-url-container")!;
+    const urlInput = document.getElementById("share-url") as HTMLInputElement;
+    const errorEl = document.getElementById("share-error")!;
+    const generateBtn = document.getElementById("share-generate") as HTMLButtonElement;
+
+    filenameEl.textContent = file.name;
+    urlContainer.classList.add("hidden");
+    urlInput.value = "";
+    errorEl.classList.add("hidden");
+    generateBtn.disabled = false;
+    generateBtn.textContent = "Generate Link";
+
+    modal.dataset.fileKey = file.key;
+    modal.classList.remove("hidden");
+}
+
+function hideShareModal(): void {
+    document.getElementById("share-modal")!.classList.add("hidden");
+}
+
+function setupShareModal(): void {
+    const modal = document.getElementById("share-modal")!;
+    const cancelBtn = document.getElementById("share-cancel")!;
+    const generateBtn = document.getElementById("share-generate")!;
+    const copyBtn = document.getElementById("share-copy")!;
+    const urlInput = document.getElementById("share-url") as HTMLInputElement;
+
+    cancelBtn.addEventListener("click", hideShareModal);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) hideShareModal();
+    });
+
+    generateBtn.addEventListener("click", async () => {
+        const fileKey = modal.dataset.fileKey;
+        if (!fileKey) return;
+
+        const expirySelect = document.getElementById("share-expiry") as HTMLSelectElement;
+        const expirySecs = parseInt(expirySelect.value, 10);
+        const urlContainer = document.getElementById("share-url-container")!;
+        const errorEl = document.getElementById("share-error")!;
+        const btn = generateBtn as HTMLButtonElement;
+
+        try {
+            btn.disabled = true;
+            btn.textContent = "Generating...";
+            errorEl.classList.add("hidden");
+ 
+            urlInput.value = await invoke<string>("generate_presigned_url", {
+                key: fileKey,
+                expirySecs,
+            });
+            urlContainer.classList.remove("hidden");
+            btn.textContent = "Regenerate";
+        } catch (err) {
+            errorEl.textContent = String(err);
+            errorEl.classList.remove("hidden");
+            btn.textContent = "Generate Link";
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    copyBtn.addEventListener("click", async () => {
+        try {
+            await navigator.clipboard.writeText(urlInput.value);
+            copyBtn.textContent = "Copied!";
+            copyBtn.classList.add("copied");
+            setTimeout(() => {
+                copyBtn.textContent = "Copy";
+                copyBtn.classList.remove("copied");
+            }, 2000);
+        } catch {
+            urlInput.select();
+            document.execCommand("copy");
+        }
+    });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
