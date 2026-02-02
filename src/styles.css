@@ -372,7 +372,7 @@ header h1 {
     height: 100%;
     background: #ff6b35;
     border-radius: 2px;
-    width: 0%;
+    width: 0;
     transition: width 0.3s ease;
 }
 
@@ -467,6 +467,7 @@ header h1 {
     color: #fff;
     font-size: 1em;
     cursor: pointer;
+    color-scheme: dark;
 }
 
 .share-modal-content select:focus {
