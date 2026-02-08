@@ -30,6 +30,14 @@ Download the latest release from [GitHub Releases](https://github.com/alsofelix/
 
 Run `flatpak install flathub io.github.alsofelix.crabdrop`
 
+### Arch Linux (AUR)
+
+Install [`crabdrop-bin`](https://aur.archlinux.org/packages/crabdrop-bin) from the AUR using your preferred AUR helper:
+
+```bash
+yay -S crabdrop-bin
+```
+
 ## Building from source
 
 Requires [Rust](https://rust-lang.org/tools/install/) and [Bun](https://bun.sh/).
