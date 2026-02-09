@@ -177,12 +177,15 @@ impl S3Client {
         password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         let mut uuid = String::new();
-        let name = key.rsplit_once("/");
+        let name = match key.rsplit_once("/") {
+            Some((_, right)) => right,
+            None => key,
+        };
         if encrypted {
             uuid = encrypt(
                 &mut data,
                 password.ok_or(anyhow!("No password"))?,
-                key.as_bytes(),
+                name.as_bytes(),
             )?;
 
             self.insert_meta(
