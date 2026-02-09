@@ -24,6 +24,8 @@ pub struct StorageConfig {
 pub struct CredentialsConfig {
     pub access_key_id: String,
     pub secret_access_key: String,
+    #[serde(default)]
+    pub encryption_passphrase: String,
 }
 
 impl CredentialsConfig {
@@ -132,6 +134,7 @@ fn save_credential_to_keyring(credentials_config: &CredentialsConfig) -> anyhow:
     let payload = serde_json::json!({
         "access_key_id": credentials_config.access_key_id,
         "secret_access_key": credentials_config.secret_access_key,
+        "encryption_passphrase": credentials_config.encryption_passphrase,
     })
     .to_string();
 

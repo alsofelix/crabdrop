@@ -1,6 +1,8 @@
+use crate::crypto::encrypt;
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, types};
+use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
@@ -58,6 +60,7 @@ pub async fn save_config(
     region: String,
     access_key: String,
     secret_key: Option<String>,
+    encryption_passphrase: Option<String>,
 ) -> Result<(), String> {
     let mut config_curr = config::Config::load().map_err(|e| e.to_string())?;
 
@@ -68,6 +71,10 @@ pub async fn save_config(
 
     if let Some(x) = secret_key.filter(|x1| !x1.trim().is_empty()) {
         config_curr.credentials.secret_access_key = x;
+    }
+
+    if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
+        config_curr.credentials.encryption_passphrase = x;
     }
 
     config_curr.save().map_err(|e| e.to_string())?;
@@ -85,6 +92,7 @@ pub async fn get_config() -> Result<types::UiConfig, String> {
         storage: config.storage,
         access_key_id: config.credentials.access_key_id,
         has_secret: !config.credentials.secret_access_key.is_empty(),
+        has_encryption_passphrase: !config.credentials.encryption_passphrase.is_empty(),
     };
 
     Ok(ui_config)
@@ -118,6 +126,7 @@ pub async fn upload_path(
     local_path: String,
     target_prefix: String,
     upload_id: String,
+    encrypted: bool,
 ) -> Result<(), String> {
     let client = {
         let guard = state.lock().await;
@@ -126,11 +135,38 @@ pub async fn upload_path(
 
     let path = Path::new(&local_path);
 
+    let mut password: Option<&[u8]> = None;
+
+    let config = if encrypted {
+        Some(config::Config::load().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+
+    if encrypted {
+        password = Some(
+            config
+                .as_ref()
+                .ok_or(String::from("NO CONFIG OK??"))?
+                .credentials
+                .encryption_passphrase
+                .as_bytes(),
+        );
+    }
+
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
 
     if metadata.is_file() {
         client
-            .det_upload(&target_prefix, path, &app, true, &upload_id)
+            .det_upload(
+                &target_prefix,
+                path,
+                &app,
+                true,
+                &upload_id,
+                encrypted,
+                password,
+            )
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -177,7 +213,9 @@ pub async fn upload_path(
                 .ok();
 
                 client
-                    .det_upload(&key, file_path, &app, false, &upload_id)
+                    .det_upload(
+                        &key, file_path, &app, false, &upload_id, encrypted, password,
+                    )
                     .await
                     .map_err(|e| e.to_string())?;
                 x += 1;
@@ -292,12 +330,15 @@ pub async fn delete_file(
 pub async fn generate_presigned_url(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
-    expiry_secs: u64
+    expiry_secs: u64,
 ) -> Result<String, String> {
     let guard = state.lock().await;
     let client = guard.as_ref().ok_or("Not configured")?;
 
-    let url = client.gen_presigned_url(key, expiry_secs).await.map_err(|e| e.to_string())?;
+    let url = client
+        .gen_presigned_url(key, expiry_secs)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(url)
 }

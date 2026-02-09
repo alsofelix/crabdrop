@@ -6,6 +6,8 @@ mod commands;
 mod config;
 mod s3;
 mod types;
+mod crypto;
+mod metadata;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

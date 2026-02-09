@@ -1,5 +1,7 @@
 use crate::config::Config;
+use crate::crypto::encrypt;
 use crate::types::File;
+use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
 use aws_sdk_s3::presigning::PresigningConfig;
@@ -13,6 +15,8 @@ use tauri::Emitter;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
+
+const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
 
 #[derive(Clone)]
 pub struct S3Client {
@@ -54,12 +58,26 @@ impl S3Client {
                     .key()
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
+
+                let encrypted = key
+                    .split("/")
+                    .last()
+                    .ok_or(anyhow::anyhow!("Error on parsing"))?
+                    .to_string()
+                    .ends_with(".enc");
+                let raw_name = key.split("/").last().unwrap_or(&key).to_string();
+                let encrypted = raw_name.ends_with(".enc");
+                let name = raw_name
+                    .strip_suffix(".enc")
+                    .unwrap_or(&raw_name)
+                    .to_string();
                 let f = File {
-                    name: key.split("/").last().unwrap_or(&key).to_string(),
+                    name,
                     key,
                     size: file.size(),
                     is_folder: false,
                     last_modified: file.last_modified().map(|d| d.secs()),
+                    encrypted,
                 };
                 vector.push(f)
             }
@@ -69,6 +87,13 @@ impl S3Client {
                     .prefix()
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
+
+                let encrypted = key
+                    .split("/")
+                    .last()
+                    .ok_or(anyhow::anyhow!("Error on parsing"))?
+                    .to_string()
+                    .ends_with(".enc");
 
                 let f = File {
                     name: key
@@ -81,6 +106,7 @@ impl S3Client {
                     size: None,
                     is_folder: true,
                     last_modified: None,
+                    encrypted,
                 };
 
                 vector.push(f);
@@ -105,6 +131,8 @@ impl S3Client {
         app: &tauri::AppHandle,
         emit_event: bool,
         upload_id: &str,
+        encrypted: bool,
+        password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         let size = std::fs::metadata(path)?.len();
 
@@ -120,9 +148,9 @@ impl S3Client {
                         "isFolder": false,
                     }),
                 )
-                .ok();
+                    .ok();
             }
-            self.upload_file(key, data).await?;
+            self.upload_file(key, data, encrypted, password).await?;
             if emit_event {
                 app.emit(
                     "upload_complete",
@@ -138,18 +166,71 @@ impl S3Client {
         Ok(())
     }
 
-    pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
+    pub async fn upload_file(
+        &self,
+        key: &str,
+        mut data: Vec<u8>,
+        encrypted: bool,
+        password: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        if encrypted {
+            encrypt(
+                &mut data,
+                password.ok_or(anyhow!("No password"))?,
+                key.as_bytes(),
+            )?;
+        }
         let bytestream = ByteStream::from(data);
 
         self.client
             .put_object()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(if encrypted {
+                format!("{}.enc", key)
+            } else {
+                key.to_owned()
+            })
             .body(bytestream)
             .send()
             .await?;
 
         Ok(())
+    }
+
+    pub async fn get_metadata(&self) -> anyhow::Result<Vec<u8>> {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await {
+            Some(metadata) => Ok(metadata),
+            None => self.create_metadata().await,
+        }
+    }
+
+    pub async fn create_metadata(&self) -> anyhow::Result<Vec<u8>> {
+        let dummy_data = serde_json::to_vec(&serde_json::json!({})).unwrap();
+        let config = Config::load()?;
+        self.upload_file(
+            CRABDROP_METADATA_FILE_NAME,
+            dummy_data.clone(),
+            true,
+            Some(config.credentials.encryption_passphrase.as_bytes()),
+        )
+        .await?;
+
+        Ok(dummy_data)
+    }
+
+    async fn get_file(&self, key: &str) -> Option<Vec<u8>> {
+        let file = self
+            .client
+            .get_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await
+            .ok()?;
+
+        let res = file.body.collect().await.ok()?.into_bytes();
+
+        Some(res.to_vec())
     }
 
     pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
@@ -225,7 +306,7 @@ impl S3Client {
             key.to_string()
         };
 
-        self.upload_file(&folder_name, vec![]).await
+        self.upload_file(&folder_name, vec![], false, None).await
     }
 
     pub async fn download_file(&self, key: &str) -> anyhow::Result<ByteStream> {
@@ -275,7 +356,7 @@ impl S3Client {
                     "isFolder": false,
                 }),
             )
-            .ok();
+                .ok();
         }
 
         let mut completed_parts: Vec<CompletedPart> = vec![];
@@ -323,7 +404,7 @@ impl S3Client {
                         "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
                     }),
                 )
-                .ok();
+                    .ok();
             }
         }
 
