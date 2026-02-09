@@ -133,7 +133,7 @@ async function handleConnection() {
     const region = (document.getElementById("region") as HTMLInputElement).value;
     const accessKey = (document.getElementById("access-key") as HTMLInputElement).value;
     let secretKey: string | undefined = (document.getElementById("secret-key") as HTMLInputElement).value;
-    let encryption_passphrase: string | undefined = (document.getElementById("encryption-passphrase") as HTMLInputElement).value;
+    let encryptionPassphrase: string | undefined = (document.getElementById("encryption-passphrase") as HTMLInputElement).value;
 
     const errorEl = document.getElementById("setup-error")!;
     const btn = document.getElementById("btn-connect") as HTMLButtonElement;
@@ -147,11 +147,11 @@ async function handleConnection() {
             secretKey = undefined;
         }
 
-        if (encryption_passphrase && encryption_passphrase.trim() === "") {
-            encryption_passphrase = undefined;
+        if (encryptionPassphrase.trim() === "") {
+            encryptionPassphrase = undefined;
         }
 
-        await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey, encryption_passphrase});
+        await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey, encryptionPassphrase});
         await invoke("test_connection");
 
         showScreen("browser");
