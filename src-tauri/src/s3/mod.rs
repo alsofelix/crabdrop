@@ -40,6 +40,11 @@ impl S3Client {
         let mut vector: Vec<File> = Vec::new();
         let mut continuation_token: Option<String> = None;
 
+        let config = Config::load()?;
+        let metadata = self
+            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .await?;
+
         loop {
             let mut request = self
                 .client
@@ -61,11 +66,13 @@ impl S3Client {
                     .to_string();
 
                 let raw_name = key.split("/").last().unwrap_or(&key).to_string();
-                let encrypted = raw_name.ends_with(".enc");
-                let name = raw_name
-                    .strip_suffix(".enc")
-                    .unwrap_or(&raw_name)
-                    .to_string();
+                let encrypted = metadata::is_in_meta(&metadata, &raw_name)?;
+                let name = if encrypted {
+                    metadata::get_filename(&metadata, &raw_name)?
+                } else {
+                    raw_name
+                };
+
                 let f = File {
                     name,
                     key,
@@ -83,12 +90,13 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                let encrypted = key
+                let encrypted_step = key
                     .split("/")
                     .last()
                     .ok_or(anyhow::anyhow!("Error on parsing"))?
-                    .to_string()
-                    .ends_with(".enc");
+                    .to_string();
+
+                let encrypted = metadata::is_in_meta(&metadata, &encrypted_step)?;
 
                 let f = File {
                     name: key
@@ -163,13 +171,14 @@ impl S3Client {
 
     pub async fn upload_file(
         &self,
-        key: &str,
+        mut key: &str,
         mut data: Vec<u8>,
         encrypted: bool,
         password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
+        let mut uuid = String::new();
         if encrypted {
-            let uuid = encrypt(
+            uuid = encrypt(
                 &mut data,
                 password.ok_or(anyhow!("No password"))?,
                 key.as_bytes(),
@@ -190,7 +199,17 @@ impl S3Client {
             .put_object()
             .bucket(&self.bucket_name)
             .key(if encrypted {
-                format!("{}.enc", key)
+                if key.contains("/") {
+                    format!(
+                        "{}/{}",
+                        key.rsplit_once("/")
+                            .ok_or(anyhow::anyhow!("Problem assigning UUID"))?
+                            .0,
+                        uuid
+                    )
+                } else {
+                    uuid
+                }
             } else {
                 key.to_owned()
             })
@@ -235,6 +254,9 @@ impl S3Client {
             password,
             CRABDROP_METADATA_FILE_NAME.as_bytes(),
         )?;
+
+        println!("{:?}", dummy_encrypted);
+        println!("{:?}", dummy_data);
 
         let bytestream = ByteStream::from(dummy_encrypted);
 
