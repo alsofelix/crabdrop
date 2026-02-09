@@ -11,4 +11,17 @@ pub fn get_filename(data: &[u8], file_uuid: &str) -> anyhow::Result<String> {
     }
 }
 
+pub fn put_filename(data: &[u8], uuid: &str, filename: &str) -> anyhow::Result<Vec<u8>> {
+    let mut map: HashMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
 
+    if !map.contains_key(uuid) {
+        map.insert(
+            uuid.to_string(),
+            filename.to_string()
+        );
+    };
+
+    // let data = serde_json::from_str(serde_json::to_string(&map)?.as_str());
+
+    Ok(serde_json::to_string(&map)?.into_bytes())
+}

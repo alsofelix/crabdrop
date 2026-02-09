@@ -1,5 +1,6 @@
 use crate::config::Config;
-use crate::crypto::encrypt;
+use crate::crypto::{decrypt, encrypt};
+use crate::metadata;
 use crate::types::File;
 use anyhow::anyhow;
 use aws_sdk_s3;
@@ -59,12 +60,6 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                let encrypted = key
-                    .split("/")
-                    .last()
-                    .ok_or(anyhow::anyhow!("Error on parsing"))?
-                    .to_string()
-                    .ends_with(".enc");
                 let raw_name = key.split("/").last().unwrap_or(&key).to_string();
                 let encrypted = raw_name.ends_with(".enc");
                 let name = raw_name
@@ -174,11 +169,20 @@ impl S3Client {
         password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         if encrypted {
-            encrypt(
+            let uuid = encrypt(
                 &mut data,
                 password.ok_or(anyhow!("No password"))?,
                 key.as_bytes(),
             )?;
+
+            self.insert_meta(
+                password.ok_or(anyhow!("No password"))?,
+                &uuid,
+                key.split("/")
+                    .last()
+                    .ok_or(anyhow!("Filename error massive"))?,
+            )
+            .await?;
         }
         let bytestream = ByteStream::from(data);
 
@@ -197,25 +201,61 @@ impl S3Client {
         Ok(())
     }
 
-    pub async fn get_metadata(&self) -> anyhow::Result<Vec<u8>> {
+    pub async fn get_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
         match self.get_file(CRABDROP_METADATA_FILE_NAME).await {
-            Some(metadata) => Ok(metadata),
-            None => self.create_metadata().await,
+            Some(mut metadata) => {
+                decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )?;
+
+                Ok(metadata)
+            }
+            None => self.create_metadata(password, None).await,
         }
     }
 
-    pub async fn create_metadata(&self) -> anyhow::Result<Vec<u8>> {
-        let dummy_data = serde_json::to_vec(&serde_json::json!({})).unwrap();
-        let config = Config::load()?;
-        self.upload_file(
-            CRABDROP_METADATA_FILE_NAME,
-            dummy_data.clone(),
-            true,
-            Some(config.credentials.encryption_passphrase.as_bytes()),
-        )
-        .await?;
+    pub async fn create_metadata(
+        &self,
+        password: &[u8],
+        data: Option<&[u8]>,
+    ) -> anyhow::Result<Vec<u8>> {
+        // this is a bit of a not great way to do this, its 3am
+        let mut dummy_data = serde_json::to_vec(&serde_json::json!({}))?;
+        let mut dummy_encrypted = dummy_data.clone();
+
+        if data.is_some() {
+            dummy_data = data.unwrap().to_vec();
+            dummy_encrypted = dummy_data.clone();
+        }
+
+        let _ = encrypt(
+            &mut dummy_encrypted,
+            password,
+            CRABDROP_METADATA_FILE_NAME.as_bytes(),
+        )?;
+
+        let bytestream = ByteStream::from(dummy_encrypted);
+
+        self.client
+            .put_object()
+            .bucket(&self.bucket_name)
+            .key(CRABDROP_METADATA_FILE_NAME)
+            .body(bytestream)
+            .send()
+            .await?;
 
         Ok(dummy_data)
+    }
+
+    async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
+        let metadata = self.get_metadata(password).await?;
+
+        let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
+
+        self.create_metadata(password, Some(&new_data)).await?;
+        Ok(())
     }
 
     async fn get_file(&self, key: &str) -> Option<Vec<u8>> {
