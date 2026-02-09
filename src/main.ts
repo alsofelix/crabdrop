@@ -112,7 +112,7 @@ async function init() {
 
 async function downloadFile(file: File): Promise<void> {
     try {
-        await invoke("download_file", {key: file.key, filename: file.name});
+        await invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted});
     } catch (e) {
         console.error("Download failed:", e);
     }

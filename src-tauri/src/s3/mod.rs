@@ -256,9 +256,6 @@ impl S3Client {
             CRABDROP_METADATA_FILE_NAME.as_bytes(),
         )?;
 
-        println!("{:?}", dummy_encrypted);
-        println!("{:?}", dummy_data);
-
         let bytestream = ByteStream::from(dummy_encrypted);
 
         self.client

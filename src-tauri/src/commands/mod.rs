@@ -1,11 +1,14 @@
+use crate::crypto::{decrypt_chunk, derive_key, encrypt};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
-use crate::{config, types};
+use crate::{config, metadata, types};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+
+const CHUNK_TOTAL: usize = 24 + (1024 * 1024) + 16;
 
 fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
     let path = dir.join(filename);
@@ -234,6 +237,7 @@ pub async fn download_file(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
     filename: &str,
+    encrypted: bool,
 ) -> Result<(), String> {
     let guard = state.lock().await;
     let client = guard.as_ref().ok_or("Not configured")?;
@@ -266,17 +270,65 @@ pub async fn download_file(
 
     let mut buffer = vec![0u8; 1024 * 1024];
     let mut downloaded: u64 = 0;
+    let mut buf_decrypt: Vec<u8> = Vec::new();
 
+    let config = config::Config::load().map_err(|e| e.to_string())?;
+    let metadata = client
+        .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut filename = if key.contains("/") {
+        key.rsplit_once("/")
+            .map(|(_, right)| right)
+            .ok_or("Bad thing")?
+            .to_string()
+    } else {
+        key.to_string()
+    };
+
+    if encrypted {
+        filename = metadata::get_filename(&metadata, &filename).map_err(|e| e.to_string())?;
+    }
+
+    let enc_key = derive_key(
+        config.credentials.encryption_passphrase.as_bytes(),
+        filename.as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
     loop {
         let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }
 
-        writer
-            .write_all(&buffer[..n])
-            .await
-            .map_err(|e| e.to_string())?;
+        if !encrypted {
+            writer
+                .write_all(&buffer[..n])
+                .await
+                .map_err(|e| e.to_string())?;
+            downloaded += n as u64;
+            app.emit(
+                "download_progress",
+                serde_json::json!({
+                    "filename": filename,
+                    "downloadedBytes": downloaded,
+                    "totalBytes": total_bytes,
+                }),
+            )
+            .ok();
+            continue;
+        }
+
+        buf_decrypt.extend(&buffer[..n]);
+
+        while buf_decrypt.len() >= CHUNK_TOTAL {
+            let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
+            println!("might not   ddddd");
+            decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+            println!("wow");
+            writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        }
         downloaded += n as u64;
 
         app.emit(
@@ -289,6 +341,14 @@ pub async fn download_file(
         )
         .ok();
     }
+
+    if !buf_decrypt.is_empty() {
+        println!("bonjour be here");
+        let mut chunk = buf_decrypt;
+        decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+        writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+    }
+
     writer.flush().await.map_err(|e| e.to_string())?;
 
     std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
