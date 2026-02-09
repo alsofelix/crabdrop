@@ -17,7 +17,7 @@ pub fn encrypt(data: &mut Vec<u8>, password: &[u8], salt: &[u8]) -> anyhow::Resu
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| anyhow!("{e}"))?;
     let mut encrypted_dat: Vec<u8> = Vec::new();
 
-    for (i, chunk) in data.chunks(1024 * 1024).enumerate() {
+    for chunk in data.chunks(1024 * 1024) {
         let mut buf = chunk.to_vec();
 
         let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
@@ -52,5 +52,12 @@ pub fn decrypt(data: &mut Vec<u8>, password: &[u8], salt: &[u8]) -> anyhow::Resu
         encrypted_dat.extend(buf);
     }
     *data = encrypted_dat;
+    Ok(())
+}
+
+pub fn decrypt_chunk(data: &mut Vec<u8>, password: &[u8], salt: &[u8]) -> anyhow::Result<()> {
+    let key = derive_key(password, salt)?;
+
+
     Ok(())
 }

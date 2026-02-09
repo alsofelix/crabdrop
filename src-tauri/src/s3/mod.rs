@@ -171,7 +171,7 @@ impl S3Client {
 
     pub async fn upload_file(
         &self,
-        mut key: &str,
+        key: &str,
         mut data: Vec<u8>,
         encrypted: bool,
         password: Option<&[u8]>,

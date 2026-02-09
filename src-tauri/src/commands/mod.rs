@@ -1,8 +1,6 @@
-use crate::crypto::encrypt;
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, types};
-use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
