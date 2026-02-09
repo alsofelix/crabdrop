@@ -177,6 +177,7 @@ impl S3Client {
         password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         let mut uuid = String::new();
+        let name = key.rsplit_once("/");
         if encrypted {
             uuid = encrypt(
                 &mut data,
@@ -372,28 +373,11 @@ impl S3Client {
     }
 
     pub async fn download_file(&self, key: &str) -> anyhow::Result<ByteStream> {
-        let config = Config::load()?;
-        let (filename, name) = match key.rsplit_once("/") {
-            Some((left, right)) => (Some(right), left.to_string()),
-            None => (None, key.to_string()),
-        };
-
-        let meta = self
-            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
-            .await?;
-        let new_key = match metadata::get_uuid(&meta, &name).ok().flatten() {
-            Some(uuid) => match filename {
-                Some(f) => format!("{f}/{uuid}"),
-                None => uuid,
-            },
-            None => key.to_string(),
-        };
-        println!("{new_key}");
         let file = self
             .client
             .get_object()
             .bucket(&self.bucket_name)
-            .key(new_key)
+            .key(key)
             .send()
             .await?;
 
