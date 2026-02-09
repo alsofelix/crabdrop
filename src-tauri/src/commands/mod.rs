@@ -72,11 +72,9 @@ pub async fn save_config(
     if let Some(x) = secret_key.filter(|x1| !x1.trim().is_empty()) {
         config_curr.credentials.secret_access_key = x;
     }
-
     if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
         config_curr.credentials.encryption_passphrase = x;
     }
-
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
     let client = S3Client::new(&config_curr).map_err(|e1| e1.to_string())?;
