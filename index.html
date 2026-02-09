@@ -65,6 +65,16 @@
                 />
             </div>
 
+            <div class="form-group">
+                <label for="encryption-passphrase">Encryption Passphrase</label>
+                <input
+                        type="password"
+                        id="encryption-passphrase"
+                        placeholder="Encryption passphrase (optional)"
+                />
+                <span class="hint">Optional. Files marked as encrypted will use this passphrase.</span>
+            </div>
+
             <div id="setup-error" class="error hidden"></div>
 
             <button type="submit" id="btn-connect">
@@ -92,10 +102,30 @@
 
     <div id="file-list" class="file-list"></div>
 
-    <div id="drop-zone" class="drop-zone">
-        <p>Drag files here to upload</p>
-    </div>
 </main>
+
+<div id="drag-overlay" class="drag-overlay hidden">
+    <div class="drag-overlay-content">
+        <span class="drag-overlay-icon">📂</span>
+        <p>Drop files to upload</p>
+    </div>
+</div>
+
+<div id="encrypt-confirm-modal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Upload Files</h3>
+        <p id="encrypt-confirm-count"></p>
+        <div id="encrypt-confirm-files" class="encrypt-file-list"></div>
+        <div class="encrypt-toggle-row">
+            <input type="checkbox" id="encrypt-toggle" />
+            <label for="encrypt-toggle">Encrypt</label>
+        </div>
+        <div class="modal-buttons">
+            <button id="encrypt-confirm-cancel">Cancel</button>
+            <button id="encrypt-confirm-upload">Upload</button>
+        </div>
+    </div>
+</div>
 
 <div id="folder-modal" class="modal hidden">
     <div class="modal-content">
