@@ -53,6 +53,16 @@
     </branding>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="0.2.0" date="2026-02-10">
+            <description>
+                <ul>
+                    <li>Added end-to-end encryption for file uploads and downloads</li>
+                    <li>Added encryption toggle in the upload overlay UI</li>
+                    <li>Improved S3 multipart upload reliability and error handling</li>
+                    <li>Fixed a colouring issue on Linux</li>
+                </ul>
+            </description>
+        </release>
         <release version="0.1.10" date="2026-02-01">
             <description>
                 <ul>
