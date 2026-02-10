@@ -13,6 +13,7 @@ use std::io::{Read, Seek};
 use std::path::Path;
 use std::time::Duration;
 use tauri::Emitter;
+use uuid::Uuid;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
@@ -162,7 +163,7 @@ impl S3Client {
                 .ok();
             }
         } else {
-            self.upload_file_multipart(key, path, app, emit_event, &upload_id)
+            self.upload_file_multipart(key, path, app, emit_event, &upload_id, encrypted, password)
                 .await?;
         }
 
@@ -391,12 +392,40 @@ impl S3Client {
         app: &tauri::AppHandle,
         emit_events: bool,
         upload_id_: &str,
+        encrypted: bool,
+        password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
+        let (prefix, _original_name) = if key.contains("/") {
+            let (p, n) = key.rsplit_once("/").unwrap();
+            (p.to_string(), n.to_string())
+        } else {
+            (String::new(), key.to_string())
+        };
+
+        let uuid = Uuid::new_v4().to_string();
+
+        let key_ = if encrypted {
+            if key.contains("/") {
+                format!("{}/{}", prefix, uuid)
+            } else {
+                uuid.clone()
+            }
+        } else {
+            key.to_string()
+        };
+
+        self.insert_meta(
+                password.ok_or(anyhow!("No password"))?,
+                &uuid,
+                &_original_name,
+            )
+            .await?;
+
         let con = self
             .client
             .create_multipart_upload()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(&key_)
             .send()
             .await?;
 
@@ -434,11 +463,17 @@ impl S3Client {
 
             file.read_exact(&mut buffer)?;
 
+            encrypt(
+                &mut buffer,
+                password.ok_or(anyhow::anyhow!("Bad password?"))?,
+                _original_name.as_bytes(),
+            )?;
+
             let part = self
                 .client
                 .upload_part()
                 .bucket(&self.bucket_name)
-                .key(key)
+                .key(&key_)
                 .upload_id(upload_id)
                 .part_number((completed_parts.len() + 1) as i32)
                 .body(ByteStream::from(buffer))
@@ -474,7 +509,7 @@ impl S3Client {
         self.client
             .complete_multipart_upload()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(&key_)
             .upload_id(upload_id)
             .multipart_upload(
                 CompletedMultipartUpload::builder()
