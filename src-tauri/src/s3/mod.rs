@@ -11,12 +11,16 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use uuid::Uuid;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
+const CHUNKS_AT_A_TIME: usize = 6;
 
 const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
 
@@ -420,7 +424,7 @@ impl S3Client {
                 &uuid,
                 &_original_name,
             )
-                .await?;
+            .await?;
         }
 
         let con = self
@@ -453,16 +457,21 @@ impl S3Client {
                 .ok();
         }
 
-        let mut completed_parts: Vec<CompletedPart> = vec![];
+        let semaphore = Arc::new(Semaphore::new(CHUNKS_AT_A_TIME));
+        let mut join_set = JoinSet::new();
+        let total_parts = (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64;
+        let mut part_number: i32 = 0;
 
         while offset < file_size {
-            let remaining = file_size - offset;
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| anyhow!("Semaphore error: {e}"))?;
 
-            let this_chunk_size = std::cmp::min(CHUNK_SIZE, remaining);
-
+            let this_chunk_size = std::cmp::min(CHUNK_SIZE, file_size - offset);
             let mut buffer = vec![0u8; this_chunk_size as usize];
             file.seek(std::io::SeekFrom::Start(offset))?;
-
             file.read_exact(&mut buffer)?;
 
             if encrypted {
@@ -473,28 +482,14 @@ impl S3Client {
                 )?;
             }
 
-            let part = self
-                .client
-                .upload_part()
-                .bucket(&self.bucket_name)
-                .key(&key_)
-                .upload_id(upload_id)
-                .part_number((completed_parts.len() + 1) as i32)
-                .body(ByteStream::from(buffer))
-                .send()
-                .await?;
-
             offset += this_chunk_size;
+            part_number += 1;
+            let pn = part_number;
 
-            let completed_part = CompletedPart::builder()
-                .part_number((completed_parts.len() + 1) as i32)
-                .e_tag(
-                    part.e_tag()
-                        .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
-                )
-                .build();
-
-            completed_parts.push(completed_part);
+            let client = self.client.clone();
+            let bucket = self.bucket_name.clone();
+            let key_clone = key_.clone();
+            let uid = upload_id.to_string();
 
             if emit_events {
                 app.emit(
@@ -502,13 +497,46 @@ impl S3Client {
                     serde_json::json!({
                         "uploadId": upload_id_,
                         "filename": path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid path"))?.to_string_lossy(),
-                        "part": completed_parts.len(),
-                        "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
+                        "part": pn,
+                        "totalParts": total_parts,
                     }),
                 )
                     .ok();
             }
+
+            join_set.spawn(async move {
+                let result = client
+                    .upload_part()
+                    .bucket(&bucket)
+                    .key(&key_clone)
+                    .upload_id(&uid)
+                    .part_number(pn)
+                    .body(ByteStream::from(buffer))
+                    .send()
+                    .await;
+                drop(permit);
+                (pn, result)
+            });
         }
+
+        let mut completed_parts: Vec<CompletedPart> = Vec::with_capacity(part_number as usize);
+
+        while let Some(result) = join_set.join_next().await {
+            let (pn, upload_result) = result.map_err(|e| anyhow!("Join error: {e}"))?;
+            let part = upload_result?;
+
+            completed_parts.push(
+                CompletedPart::builder()
+                    .part_number(pn)
+                    .e_tag(
+                        part.e_tag()
+                            .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
+                    )
+                    .build(),
+            );
+        }
+
+        completed_parts.sort_by_key(|p| p.part_number());
 
         self.client
             .complete_multipart_upload()
