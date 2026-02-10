@@ -192,15 +192,6 @@ impl S3Client {
                 password.ok_or(anyhow!("No password"))?,
                 name.as_bytes(),
             )?;
-
-            self.insert_meta(
-                password.ok_or(anyhow!("No password"))?,
-                &uuid,
-                key.split("/")
-                    .last()
-                    .ok_or(anyhow!("Filename error massive"))?,
-            )
-            .await?;
         }
         let bytestream = ByteStream::from(data);
 
@@ -214,10 +205,10 @@ impl S3Client {
                         key.rsplit_once("/")
                             .ok_or(anyhow::anyhow!("Problem assigning UUID"))?
                             .0,
-                        uuid
+                        &uuid
                     )
                 } else {
-                    uuid
+                    uuid.clone()
                 }
             } else {
                 key.to_owned()
@@ -225,6 +216,17 @@ impl S3Client {
             .body(bytestream)
             .send()
             .await?;
+
+        if encrypted {
+            self.insert_meta(
+                password.ok_or(anyhow!("No password"))?,
+                &uuid,
+                key.split("/")
+                    .last()
+                    .ok_or(anyhow!("Filename error massive"))?,
+            )
+            .await?;
+        }
 
         Ok(())
     }
@@ -418,15 +420,6 @@ impl S3Client {
             key.to_string()
         };
 
-        if encrypted {
-            self.insert_meta(
-                password.ok_or(anyhow!("No password"))?,
-                &uuid,
-                &_original_name,
-            )
-            .await?;
-        }
-
         let con = self
             .client
             .create_multipart_upload()
@@ -550,6 +543,15 @@ impl S3Client {
             )
             .send()
             .await?;
+
+        if encrypted {
+            self.insert_meta(
+                password.ok_or(anyhow!("No password"))?,
+                &uuid,
+                &_original_name,
+            )
+            .await?;
+        }
 
         if emit_events {
             app.emit(

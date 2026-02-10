@@ -1,41 +1,25 @@
 use anyhow::anyhow;
-use bimap::BiMap;
+use std::collections::HashMap;
 
 pub fn get_filename(data: &[u8], file_uuid: &str) -> anyhow::Result<String> {
-    let map: BiMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
+    let map: HashMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
 
-    if map.contains_left(file_uuid) {
-        Ok(map.get_by_left(file_uuid).unwrap().to_string())
-    } else {
-        Err(anyhow!("Missing in metadata"))
-    }
+    map.get(file_uuid)
+        .cloned()
+        .ok_or_else(|| anyhow!("Missing in metadata"))
 }
 
-// NOT USED AS OF RIGHT NOW
-// pub fn get_uuid(data: &[u8], file_name: &str) -> anyhow::Result<Option<String>> {
-//     let map: BiMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
-//
-//     if map.contains_right(file_name) {
-//         return Ok(Some(map.get_by_right(file_name).unwrap().to_string()));
-//     }
-//
-//     Ok(None)
-// }
-// NOT USED AS OF RIGHT NOW
-
 pub fn put_filename(data: &[u8], uuid: &str, filename: &str) -> anyhow::Result<Vec<u8>> {
-    let mut map: BiMap<String, String> =
+    let mut map: HashMap<String, String> =
         serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
 
-    if !map.contains_left(uuid) {
-        map.insert(uuid.to_string(), filename.to_string());
-    };
+    map.entry(uuid.to_string()).or_insert_with(|| filename.to_string());
 
     Ok(serde_json::to_string(&map)?.into_bytes())
 }
 
 pub fn is_in_meta(data: &[u8], uuid: &str) -> anyhow::Result<bool> {
-    let map: BiMap<String, String> =
+    let map: HashMap<String, String> =
         serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
-    Ok(map.contains_left(uuid))
+    Ok(map.contains_key(uuid))
 }
