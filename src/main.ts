@@ -43,6 +43,7 @@ interface File {
     size: number | null;
     isFolder: boolean;
     lastModified: number | null;
+    encrypted: boolean;
 }
 
 interface StorageConfig {
@@ -55,6 +56,7 @@ interface Config {
     storage: StorageConfig;
     access_key_id: string,
     has_secret: boolean,
+    has_encryption_passphrase: boolean,
 }
 
 interface DropPayload {
@@ -63,6 +65,7 @@ interface DropPayload {
 }
 
 let currentPath = "";
+let pendingDropPaths: string[] = [];
 
 async function loadFiles(prefix: string): Promise<void> {
     try {
@@ -75,9 +78,9 @@ async function loadFiles(prefix: string): Promise<void> {
     }
 }
 
-async function uploadPath(localPath: string, targetPrefix: string, uploadId: string): Promise<void> {
+async function uploadPath(localPath: string, targetPrefix: string, uploadId: string, encrypted: boolean): Promise<void> {
     try {
-        await invoke("upload_path", {localPath, targetPrefix, uploadId});
+        await invoke("upload_path", {localPath, targetPrefix, uploadId, encrypted});
         console.log("Uploaded:", targetPrefix);
     } catch (e) {
         console.error("Upload failed:", e);
@@ -88,7 +91,8 @@ async function uploadPath(localPath: string, targetPrefix: string, uploadId: str
 
 async function init() {
     setupEventListeners();
-    setupDropZone();
+    setupDragOverlay();
+    setupEncryptConfirmModal();
     setUpSettingsButton();
     setUpConnScreen();
     setupFolderModal();
@@ -108,7 +112,7 @@ async function init() {
 
 async function downloadFile(file: File): Promise<void> {
     try {
-        await invoke("download_file", {key: file.key, filename: file.name});
+        await invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted});
     } catch (e) {
         console.error("Download failed:", e);
     }
@@ -129,6 +133,7 @@ async function handleConnection() {
     const region = (document.getElementById("region") as HTMLInputElement).value;
     const accessKey = (document.getElementById("access-key") as HTMLInputElement).value;
     let secretKey: string | undefined = (document.getElementById("secret-key") as HTMLInputElement).value;
+    let encryptionPassphrase: string | undefined = (document.getElementById("encryption-passphrase") as HTMLInputElement).value;
 
     const errorEl = document.getElementById("setup-error")!;
     const btn = document.getElementById("btn-connect") as HTMLButtonElement;
@@ -142,7 +147,11 @@ async function handleConnection() {
             secretKey = undefined;
         }
 
-        await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey});
+        if (encryptionPassphrase.trim() === "") {
+            encryptionPassphrase = undefined;
+        }
+
+        await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey, encryptionPassphrase});
         await invoke("test_connection");
 
         showScreen("browser");
@@ -517,6 +526,14 @@ function createFileItem(file: File): HTMLElement {
 
     item.appendChild(icon);
     item.appendChild(name);
+
+    if (file.encrypted) {
+        const lockIcon = document.createElement("span");
+        lockIcon.className = "lock-icon";
+        lockIcon.textContent = "\uD83D\uDD12";
+        item.appendChild(lockIcon);
+    }
+
     item.appendChild(size);
 
     item.addEventListener("click", () => handleFileClick(file));
@@ -569,6 +586,16 @@ function setUpSettingsButton() {
                 ? "Saved in Keychain (leave blank to keep)"
                 : "Enter secret key";
 
+            const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
+            encPassEl.value = "";
+            if (config.has_encryption_passphrase) {
+                encPassEl.placeholder = "Saved (leave blank to keep)";
+                encPassEl.required = false;
+            } else {
+                encPassEl.placeholder = "Encryption passphrase (optional)";
+                encPassEl.required = false;
+            }
+
             showScreen("setup");
         } catch (err) {
             console.error(err);
@@ -576,34 +603,83 @@ function setUpSettingsButton() {
     })
 }
 
-function setupDropZone(): void {
-    const dropZone = document.getElementById("drop-zone")!;
+function setupDragOverlay(): void {
+    const overlay = document.getElementById("drag-overlay")!;
 
-    dropZone.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        dropZone.classList.add("drag-over");
+    listen("tauri://drag-over", () => {
+        overlay.classList.remove("hidden");
     });
 
-    dropZone.addEventListener("dragleave", () => {
-        dropZone.classList.remove("drag-over");
+    listen("tauri://drag-leave", () => {
+        overlay.classList.add("hidden");
     });
 
-    dropZone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        dropZone.classList.remove("drag-over");
+    listen("tauri://drag-drop", () => {
+        overlay.classList.add("hidden");
     });
 }
 
-async function handleFileDrop(paths: string[]): Promise<void> {
+function setupEncryptConfirmModal(): void {
+    const modal = document.getElementById("encrypt-confirm-modal")!;
+    const cancelBtn = document.getElementById("encrypt-confirm-cancel")!;
+    const uploadBtn = document.getElementById("encrypt-confirm-upload")!;
+    const toggle = document.getElementById("encrypt-toggle") as HTMLInputElement;
+
+    uploadBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        startUpload(toggle.checked);
+        toggle.checked = false;
+    });
+
+    cancelBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        pendingDropPaths = [];
+        toggle.checked = false;
+    });
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.classList.add("hidden");
+            pendingDropPaths = [];
+            toggle.checked = false;
+        }
+    });
+}
+
+async function startUpload(encrypted: boolean): Promise<void> {
+    const paths = pendingDropPaths;
+    pendingDropPaths = [];
+
     const uploadPromises = paths.map((path) => {
         const filename = getFilenameFromPath(path);
         const targetPrefix = currentPath + filename;
         const uploadId = generateUploadId();
-        return uploadPath(path, targetPrefix, uploadId);
+        return uploadPath(path, targetPrefix, uploadId, encrypted);
     });
 
     await Promise.all(uploadPromises);
     await loadFiles(currentPath);
+}
+
+function handleFileDrop(paths: string[]): void {
+    pendingDropPaths.push(...paths);
+    const modal = document.getElementById("encrypt-confirm-modal")!;
+    const countEl = document.getElementById("encrypt-confirm-count")!;
+    const fileListEl = document.getElementById("encrypt-confirm-files")!;
+
+    countEl.textContent = pendingDropPaths.length === 1
+        ? `1 file ready to upload`
+        : `${pendingDropPaths.length} files ready to upload`;
+
+    fileListEl.innerHTML = "";
+    for (const path of pendingDropPaths) {
+        const item = document.createElement("div");
+        item.className = "encrypt-file-item";
+        item.textContent = getFilenameFromPath(path);
+        fileListEl.appendChild(item);
+    }
+
+    modal.classList.remove("hidden");
 }
 
 function setupFolderModal() {
@@ -666,7 +742,18 @@ function showShareModal(file: File): void {
     generateBtn.disabled = false;
     generateBtn.textContent = "Generate Link";
 
+    const existingNotice = modal.querySelector(".share-encrypted-notice");
+    if (existingNotice) existingNotice.remove();
+
+    if (file.encrypted) {
+        const notice = document.createElement("div");
+        notice.className = "share-encrypted-notice";
+        notice.textContent = "This file is encrypted. The share link will include the decryption key.";
+        urlContainer.parentElement!.insertBefore(notice, urlContainer);
+    }
+
     modal.dataset.fileKey = file.key;
+    modal.dataset.fileEncrypted = String(file.encrypted);
     modal.classList.remove("hidden");
 }
 
@@ -701,11 +788,18 @@ function setupShareModal(): void {
             btn.disabled = true;
             btn.textContent = "Generating...";
             errorEl.classList.add("hidden");
- 
-            urlInput.value = await invoke<string>("generate_presigned_url", {
+
+            let url = await invoke<string>("generate_presigned_url", {
                 key: fileKey,
                 expirySecs,
             });
+
+            if (modal.dataset.fileEncrypted === "true") {
+                const derivedKey = await invoke<string>("get_file_key", {key: fileKey});
+                url += "#key=" + derivedKey;
+            }
+
+            urlInput.value = url;
             urlContainer.classList.remove("hidden");
             btn.textContent = "Regenerate";
         } catch (err) {

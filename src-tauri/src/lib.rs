@@ -4,6 +4,8 @@ use tokio::sync::Mutex;
 
 mod commands;
 mod config;
+mod crypto;
+mod metadata;
 mod s3;
 mod types;
 

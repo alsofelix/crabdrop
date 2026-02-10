@@ -1,5 +1,8 @@
 use crate::config::Config;
+use crate::crypto::{decrypt, encrypt};
+use crate::metadata;
 use crate::types::File;
+use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
 use aws_sdk_s3::presigning::PresigningConfig;
@@ -8,16 +11,24 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
+use tokio::sync::{Mutex, Semaphore};
+use tokio::task::JoinSet;
+use uuid::Uuid;
 
 const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
+const CHUNKS_AT_A_TIME: usize = 6;
+
+const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
 
 #[derive(Clone)]
 pub struct S3Client {
     client: Client,
     bucket_name: String,
+    meta_lock: Arc<Mutex<()>>,
 }
 
 impl S3Client {
@@ -28,12 +39,18 @@ impl S3Client {
         Ok(Self {
             client,
             bucket_name: config.storage.bucket.clone(),
+            meta_lock: Arc::new(Mutex::new(())),
         })
     }
 
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
         let mut vector: Vec<File> = Vec::new();
         let mut continuation_token: Option<String> = None;
+
+        let config = Config::load()?;
+        let metadata = self
+            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .await?;
 
         loop {
             let mut request = self
@@ -54,12 +71,26 @@ impl S3Client {
                     .key()
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
+
+                let raw_name = key.split("/").last().unwrap_or(&key).to_string();
+                let encrypted = metadata::is_in_meta(&metadata, &raw_name)?;
+                let name = if encrypted {
+                    metadata::get_filename(&metadata, &raw_name)?
+                } else {
+                    raw_name
+                };
+
+                if name == CRABDROP_METADATA_FILE_NAME {
+                    continue;
+                }
+
                 let f = File {
-                    name: key.split("/").last().unwrap_or(&key).to_string(),
+                    name,
                     key,
                     size: file.size(),
                     is_folder: false,
                     last_modified: file.last_modified().map(|d| d.secs()),
+                    encrypted,
                 };
                 vector.push(f)
             }
@@ -69,6 +100,14 @@ impl S3Client {
                     .prefix()
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
+
+                let encrypted_step = key
+                    .split("/")
+                    .last()
+                    .ok_or(anyhow::anyhow!("Error on parsing"))?
+                    .to_string();
+
+                let encrypted = metadata::is_in_meta(&metadata, &encrypted_step)?;
 
                 let f = File {
                     name: key
@@ -81,6 +120,7 @@ impl S3Client {
                     size: None,
                     is_folder: true,
                     last_modified: None,
+                    encrypted,
                 };
 
                 vector.push(f);
@@ -105,6 +145,8 @@ impl S3Client {
         app: &tauri::AppHandle,
         emit_event: bool,
         upload_id: &str,
+        encrypted: bool,
+        password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         let size = std::fs::metadata(path)?.len();
 
@@ -120,9 +162,9 @@ impl S3Client {
                         "isFolder": false,
                     }),
                 )
-                .ok();
+                    .ok();
             }
-            self.upload_file(key, data).await?;
+            self.upload_file(key, data, encrypted, password).await?;
             if emit_event {
                 app.emit(
                     "upload_complete",
@@ -131,25 +173,148 @@ impl S3Client {
                 .ok();
             }
         } else {
-            self.upload_file_multipart(key, path, app, emit_event, &upload_id)
+            self.upload_file_multipart(key, path, app, emit_event, &upload_id, encrypted, password)
                 .await?;
         }
 
         Ok(())
     }
 
-    pub async fn upload_file(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
+    pub async fn upload_file(
+        &self,
+        key: &str,
+        mut data: Vec<u8>,
+        encrypted: bool,
+        password: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        let mut uuid = String::new();
+        let name = match key.rsplit_once("/") {
+            Some((_, right)) => right,
+            None => key,
+        };
+        if encrypted {
+            uuid = encrypt(
+                &mut data,
+                password.ok_or(anyhow!("No password"))?,
+                name.as_bytes(),
+            )?;
+        }
+        let s3_key = if encrypted {
+            if key.contains("/") {
+                format!(
+                    "{}/{}",
+                    key.rsplit_once("/")
+                        .ok_or(anyhow::anyhow!("Problem assigning UUID"))?
+                        .0,
+                    &uuid
+                )
+            } else {
+                uuid.clone()
+            }
+        } else {
+            key.to_owned()
+        };
+
         let bytestream = ByteStream::from(data);
 
         self.client
             .put_object()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(&s3_key)
             .body(bytestream)
             .send()
             .await?;
 
+        if encrypted {
+            if let Err(e) = self
+                .insert_meta(
+                    password.ok_or(anyhow!("No password"))?,
+                    &uuid,
+                    key.split("/")
+                        .last()
+                        .ok_or(anyhow!("Filename error massive"))?,
+                )
+                .await
+            {
+                self.delete_file(&s3_key).await.ok();
+                return Err(e);
+            }
+        }
+
         Ok(())
+    }
+
+    pub async fn get_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await {
+            Some(mut metadata) => {
+                decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )?;
+
+                Ok(metadata)
+            }
+            None => self.create_metadata(password, None).await,
+        }
+    }
+
+    pub async fn create_metadata(
+        &self,
+        password: &[u8],
+        data: Option<&[u8]>,
+    ) -> anyhow::Result<Vec<u8>> {
+        // this is a bit of a not great way to do this, its 3am
+        let mut dummy_data = serde_json::to_vec(&serde_json::json!({}))?;
+        let mut dummy_encrypted = dummy_data.clone();
+
+        if data.is_some() {
+            dummy_data = data.unwrap().to_vec();
+            dummy_encrypted = dummy_data.clone();
+        }
+
+        let _ = encrypt(
+            &mut dummy_encrypted,
+            password,
+            CRABDROP_METADATA_FILE_NAME.as_bytes(),
+        )?;
+
+        let bytestream = ByteStream::from(dummy_encrypted);
+
+        self.client
+            .put_object()
+            .bucket(&self.bucket_name)
+            .key(CRABDROP_METADATA_FILE_NAME)
+            .body(bytestream)
+            .send()
+            .await?;
+
+        Ok(dummy_data)
+    }
+
+    async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
+        let _guard = self.meta_lock.lock().await;
+        let metadata = self.get_metadata(password).await?;
+
+        let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
+
+        self.create_metadata(password, Some(&new_data)).await?;
+        Ok(())
+    }
+
+    async fn get_file(&self, key: &str) -> Option<Vec<u8>> {
+        let file = self
+            .client
+            .get_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await
+            .ok()?;
+
+        let res = file.body.collect().await.ok()?.into_bytes();
+
+        Some(res.to_vec())
     }
 
     pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
@@ -225,7 +390,7 @@ impl S3Client {
             key.to_string()
         };
 
-        self.upload_file(&folder_name, vec![]).await
+        self.upload_file(&folder_name, vec![], false, None).await
     }
 
     pub async fn download_file(&self, key: &str) -> anyhow::Result<ByteStream> {
@@ -247,12 +412,33 @@ impl S3Client {
         app: &tauri::AppHandle,
         emit_events: bool,
         upload_id_: &str,
+        encrypted: bool,
+        password: Option<&[u8]>,
     ) -> anyhow::Result<()> {
+        let (prefix, _original_name) = if key.contains("/") {
+            let (p, n) = key.rsplit_once("/").unwrap();
+            (p.to_string(), n.to_string())
+        } else {
+            (String::new(), key.to_string())
+        };
+
+        let uuid = Uuid::new_v4().to_string();
+
+        let key_ = if encrypted {
+            if key.contains("/") {
+                format!("{}/{}", prefix, uuid)
+            } else {
+                uuid.clone()
+            }
+        } else {
+            key.to_string()
+        };
+
         let con = self
             .client
             .create_multipart_upload()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(&key_)
             .send()
             .await?;
 
@@ -275,43 +461,42 @@ impl S3Client {
                     "isFolder": false,
                 }),
             )
-            .ok();
+                .ok();
         }
 
-        let mut completed_parts: Vec<CompletedPart> = vec![];
+        let semaphore = Arc::new(Semaphore::new(CHUNKS_AT_A_TIME));
+        let mut join_set = JoinSet::new();
+        let total_parts = (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64;
+        let mut part_number: i32 = 0;
 
         while offset < file_size {
-            let remaining = file_size - offset;
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| anyhow!("Semaphore error: {e}"))?;
 
-            let this_chunk_size = std::cmp::min(CHUNK_SIZE, remaining);
-
+            let this_chunk_size = std::cmp::min(CHUNK_SIZE, file_size - offset);
             let mut buffer = vec![0u8; this_chunk_size as usize];
             file.seek(std::io::SeekFrom::Start(offset))?;
-
             file.read_exact(&mut buffer)?;
 
-            let part = self
-                .client
-                .upload_part()
-                .bucket(&self.bucket_name)
-                .key(key)
-                .upload_id(upload_id)
-                .part_number((completed_parts.len() + 1) as i32)
-                .body(ByteStream::from(buffer))
-                .send()
-                .await?;
+            if encrypted {
+                encrypt(
+                    &mut buffer,
+                    password.ok_or(anyhow::anyhow!("Bad password?"))?,
+                    _original_name.as_bytes(),
+                )?;
+            }
 
             offset += this_chunk_size;
+            part_number += 1;
+            let pn = part_number;
 
-            let completed_part = CompletedPart::builder()
-                .part_number((completed_parts.len() + 1) as i32)
-                .e_tag(
-                    part.e_tag()
-                        .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
-                )
-                .build();
-
-            completed_parts.push(completed_part);
+            let client = self.client.clone();
+            let bucket = self.bucket_name.clone();
+            let key_clone = key_.clone();
+            let uid = upload_id.to_string();
 
             if emit_events {
                 app.emit(
@@ -319,18 +504,78 @@ impl S3Client {
                     serde_json::json!({
                         "uploadId": upload_id_,
                         "filename": path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid path"))?.to_string_lossy(),
-                        "part": completed_parts.len(),
-                        "totalParts": (file_size as f64 / CHUNK_SIZE as f64).ceil() as u64,
+                        "part": pn,
+                        "totalParts": total_parts,
                     }),
                 )
-                .ok();
+                    .ok();
+            }
+
+            join_set.spawn(async move {
+                let result = client
+                    .upload_part()
+                    .bucket(&bucket)
+                    .key(&key_clone)
+                    .upload_id(&uid)
+                    .part_number(pn)
+                    .body(ByteStream::from(buffer))
+                    .send()
+                    .await;
+                drop(permit);
+                (pn, result)
+            });
+        }
+
+        let mut completed_parts: Vec<CompletedPart> = Vec::with_capacity(part_number as usize);
+        let mut upload_error: Option<anyhow::Error> = None;
+
+        while let Some(result) = join_set.join_next().await {
+            let (pn, upload_result) = match result {
+                Ok(v) => v,
+                Err(e) => {
+                    upload_error = Some(anyhow!("Join error: {e}"));
+                    break;
+                }
+            };
+
+            match upload_result {
+                Ok(part) => {
+                    completed_parts.push(
+                        CompletedPart::builder()
+                            .part_number(pn)
+                            .e_tag(
+                                part.e_tag()
+                                    .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
+                            )
+                            .build(),
+                    );
+                }
+                Err(e) => {
+                    upload_error = Some(e.into());
+                    break;
+                }
             }
         }
+
+        if let Some(err) = upload_error {
+            join_set.abort_all();
+            self.client
+                .abort_multipart_upload()
+                .bucket(&self.bucket_name)
+                .key(&key_)
+                .upload_id(upload_id)
+                .send()
+                .await
+                .ok();
+            return Err(err);
+        }
+
+        completed_parts.sort_by_key(|p| p.part_number());
 
         self.client
             .complete_multipart_upload()
             .bucket(&self.bucket_name)
-            .key(key)
+            .key(&key_)
             .upload_id(upload_id)
             .multipart_upload(
                 CompletedMultipartUpload::builder()
@@ -339,6 +584,20 @@ impl S3Client {
             )
             .send()
             .await?;
+
+        if encrypted {
+            if let Err(e) = self
+                .insert_meta(
+                    password.ok_or(anyhow!("No password"))?,
+                    &uuid,
+                    &_original_name,
+                )
+                .await
+            {
+                self.delete_file(&key_).await.ok();
+                return Err(e);
+            }
+        }
 
         if emit_events {
             app.emit(

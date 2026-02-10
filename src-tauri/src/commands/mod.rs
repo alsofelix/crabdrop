@@ -1,11 +1,14 @@
+use crate::crypto::{decrypt_chunk, derive_key};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
-use crate::{config, types};
+use crate::{config, metadata, types};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+
+const CHUNK_TOTAL: usize = 24 + (1024 * 1024) + 16;
 
 fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
     let path = dir.join(filename);
@@ -38,8 +41,10 @@ pub async fn list_files(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     prefix: &str,
 ) -> Result<Vec<types::File>, String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.list_dir(prefix).await.map_err(|e| e.to_string())
 }
@@ -58,6 +63,7 @@ pub async fn save_config(
     region: String,
     access_key: String,
     secret_key: Option<String>,
+    encryption_passphrase: Option<String>,
 ) -> Result<(), String> {
     let mut config_curr = config::Config::load().map_err(|e| e.to_string())?;
 
@@ -69,7 +75,9 @@ pub async fn save_config(
     if let Some(x) = secret_key.filter(|x1| !x1.trim().is_empty()) {
         config_curr.credentials.secret_access_key = x;
     }
-
+    if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
+        config_curr.credentials.encryption_passphrase = x;
+    }
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
     let client = S3Client::new(&config_curr).map_err(|e1| e1.to_string())?;
@@ -85,6 +93,7 @@ pub async fn get_config() -> Result<types::UiConfig, String> {
         storage: config.storage,
         access_key_id: config.credentials.access_key_id,
         has_secret: !config.credentials.secret_access_key.is_empty(),
+        has_encryption_passphrase: !config.credentials.encryption_passphrase.is_empty(),
     };
 
     Ok(ui_config)
@@ -92,8 +101,10 @@ pub async fn get_config() -> Result<types::UiConfig, String> {
 
 #[tauri::command]
 pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.list_dir("").await.map_err(|e| e.to_string())?;
     Ok(())
@@ -104,8 +115,10 @@ pub async fn upload_folder(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.upload_folder(key).await.map_err(|e| e.to_string())?;
     Ok(())
@@ -118,6 +131,7 @@ pub async fn upload_path(
     local_path: String,
     target_prefix: String,
     upload_id: String,
+    encrypted: bool,
 ) -> Result<(), String> {
     let client = {
         let guard = state.lock().await;
@@ -126,11 +140,38 @@ pub async fn upload_path(
 
     let path = Path::new(&local_path);
 
+    let mut password: Option<&[u8]> = None;
+
+    let config = if encrypted {
+        Some(config::Config::load().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+
+    if encrypted {
+        password = Some(
+            config
+                .as_ref()
+                .ok_or(String::from("NO CONFIG OK??"))?
+                .credentials
+                .encryption_passphrase
+                .as_bytes(),
+        );
+    }
+
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
 
     if metadata.is_file() {
         client
-            .det_upload(&target_prefix, path, &app, true, &upload_id)
+            .det_upload(
+                &target_prefix,
+                path,
+                &app,
+                true,
+                &upload_id,
+                encrypted,
+                password,
+            )
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -177,7 +218,9 @@ pub async fn upload_path(
                 .ok();
 
                 client
-                    .det_upload(&key, file_path, &app, false, &upload_id)
+                    .det_upload(
+                        &key, file_path, &app, false, &upload_id, encrypted, password,
+                    )
                     .await
                     .map_err(|e| e.to_string())?;
                 x += 1;
@@ -200,9 +243,12 @@ pub async fn download_file(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
     filename: &str,
+    encrypted: bool,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
     let file = client.download_file(key).await.map_err(|e| e.to_string())?;
@@ -232,17 +278,63 @@ pub async fn download_file(
 
     let mut buffer = vec![0u8; 1024 * 1024];
     let mut downloaded: u64 = 0;
+    let mut buf_decrypt: Vec<u8> = Vec::new();
 
+    let config = config::Config::load().map_err(|e| e.to_string())?;
+    let metadata = client
+        .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut filename = if key.contains("/") {
+        key.rsplit_once("/")
+            .map(|(_, right)| right)
+            .ok_or("Bad thing")?
+            .to_string()
+    } else {
+        key.to_string()
+    };
+
+    if encrypted {
+        filename = metadata::get_filename(&metadata, &filename).map_err(|e| e.to_string())?;
+    }
+
+    let enc_key = derive_key(
+        config.credentials.encryption_passphrase.as_bytes(),
+        filename.as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
     loop {
         let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }
 
-        writer
-            .write_all(&buffer[..n])
-            .await
-            .map_err(|e| e.to_string())?;
+        if !encrypted {
+            writer
+                .write_all(&buffer[..n])
+                .await
+                .map_err(|e| e.to_string())?;
+            downloaded += n as u64;
+            app.emit(
+                "download_progress",
+                serde_json::json!({
+                    "filename": filename,
+                    "downloadedBytes": downloaded,
+                    "totalBytes": total_bytes,
+                }),
+            )
+            .ok();
+            continue;
+        }
+
+        buf_decrypt.extend(&buffer[..n]);
+
+        while buf_decrypt.len() >= CHUNK_TOTAL {
+            let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
+            decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+            writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        }
         downloaded += n as u64;
 
         app.emit(
@@ -255,6 +347,13 @@ pub async fn download_file(
         )
         .ok();
     }
+
+    if !buf_decrypt.is_empty() {
+        let mut chunk = buf_decrypt;
+        decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+        writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+    }
+
     writer.flush().await.map_err(|e| e.to_string())?;
 
     std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
@@ -275,8 +374,10 @@ pub async fn delete_file(
     key: &str,
     is_folder: bool,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     if is_folder {
         client.delete_prefix(key).await.map_err(|e| e.to_string())?;
@@ -292,12 +393,17 @@ pub async fn delete_file(
 pub async fn generate_presigned_url(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
-    expiry_secs: u64
+    expiry_secs: u64,
 ) -> Result<String, String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
-    let url = client.gen_presigned_url(key, expiry_secs).await.map_err(|e| e.to_string())?;
+    let url = client
+        .gen_presigned_url(key, expiry_secs)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(url)
 }

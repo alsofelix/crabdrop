@@ -29,4 +29,7 @@ toml = "0.9.11"
 anyhow = "1.0.100"
 walkdir = "2.5.0"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+argon2 = "0.5.3"
+chacha20poly1305 = "0.10.1"
+uuid = { version = "1.20.0", features = ["v4"] }
 
