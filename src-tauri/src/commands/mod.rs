@@ -41,8 +41,10 @@ pub async fn list_files(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     prefix: &str,
 ) -> Result<Vec<types::File>, String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.list_dir(prefix).await.map_err(|e| e.to_string())
 }
@@ -99,8 +101,10 @@ pub async fn get_config() -> Result<types::UiConfig, String> {
 
 #[tauri::command]
 pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.list_dir("").await.map_err(|e| e.to_string())?;
     Ok(())
@@ -111,8 +115,10 @@ pub async fn upload_folder(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     client.upload_folder(key).await.map_err(|e| e.to_string())?;
     Ok(())
@@ -239,8 +245,10 @@ pub async fn download_file(
     filename: &str,
     encrypted: bool,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
     let file = client.download_file(key).await.map_err(|e| e.to_string())?;
@@ -366,8 +374,10 @@ pub async fn delete_file(
     key: &str,
     is_folder: bool,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     if is_folder {
         client.delete_prefix(key).await.map_err(|e| e.to_string())?;
@@ -385,8 +395,10 @@ pub async fn generate_presigned_url(
     key: &str,
     expiry_secs: u64,
 ) -> Result<String, String> {
-    let guard = state.lock().await;
-    let client = guard.as_ref().ok_or("Not configured")?;
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
 
     let url = client
         .gen_presigned_url(key, expiry_secs)

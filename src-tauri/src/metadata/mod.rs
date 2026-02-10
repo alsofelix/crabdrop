@@ -13,13 +13,13 @@ pub fn put_filename(data: &[u8], uuid: &str, filename: &str) -> anyhow::Result<V
     let mut map: HashMap<String, String> =
         serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
 
-    map.entry(uuid.to_string()).or_insert_with(|| filename.to_string());
+    map.entry(uuid.to_string())
+        .or_insert_with(|| filename.to_string());
 
     Ok(serde_json::to_string(&map)?.into_bytes())
 }
 
 pub fn is_in_meta(data: &[u8], uuid: &str) -> anyhow::Result<bool> {
-    let map: HashMap<String, String> =
-        serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
+    let map: HashMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
     Ok(map.contains_key(uuid))
 }

@@ -65,14 +65,13 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let content = self.to_toml()?;
-        let config_path = get_config_path()?;
-
-        std::fs::write(config_path, content)?;
-
         if !self.credentials.is_empty() {
             save_credential_to_keyring(&self.credentials)?;
         }
+
+        let content = self.to_toml()?;
+        let config_path = get_config_path()?;
+        std::fs::write(config_path, content)?;
 
         Ok(())
     }
