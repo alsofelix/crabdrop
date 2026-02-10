@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -28,6 +28,7 @@ const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
 pub struct S3Client {
     client: Client,
     bucket_name: String,
+    meta_lock: Arc<Mutex<()>>,
 }
 
 impl S3Client {
@@ -38,6 +39,7 @@ impl S3Client {
         Ok(Self {
             client,
             bucket_name: config.storage.bucket.clone(),
+            meta_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -193,39 +195,46 @@ impl S3Client {
                 name.as_bytes(),
             )?;
         }
+        let s3_key = if encrypted {
+            if key.contains("/") {
+                format!(
+                    "{}/{}",
+                    key.rsplit_once("/")
+                        .ok_or(anyhow::anyhow!("Problem assigning UUID"))?
+                        .0,
+                    &uuid
+                )
+            } else {
+                uuid.clone()
+            }
+        } else {
+            key.to_owned()
+        };
+
         let bytestream = ByteStream::from(data);
 
         self.client
             .put_object()
             .bucket(&self.bucket_name)
-            .key(if encrypted {
-                if key.contains("/") {
-                    format!(
-                        "{}/{}",
-                        key.rsplit_once("/")
-                            .ok_or(anyhow::anyhow!("Problem assigning UUID"))?
-                            .0,
-                        &uuid
-                    )
-                } else {
-                    uuid.clone()
-                }
-            } else {
-                key.to_owned()
-            })
+            .key(&s3_key)
             .body(bytestream)
             .send()
             .await?;
 
         if encrypted {
-            self.insert_meta(
-                password.ok_or(anyhow!("No password"))?,
-                &uuid,
-                key.split("/")
-                    .last()
-                    .ok_or(anyhow!("Filename error massive"))?,
-            )
-            .await?;
+            if let Err(e) = self
+                .insert_meta(
+                    password.ok_or(anyhow!("No password"))?,
+                    &uuid,
+                    key.split("/")
+                        .last()
+                        .ok_or(anyhow!("Filename error massive"))?,
+                )
+                .await
+            {
+                self.delete_file(&s3_key).await.ok();
+                return Err(e);
+            }
         }
 
         Ok(())
@@ -280,6 +289,7 @@ impl S3Client {
     }
 
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
+        let _guard = self.meta_lock.lock().await;
         let metadata = self.get_metadata(password).await?;
 
         let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
@@ -513,20 +523,47 @@ impl S3Client {
         }
 
         let mut completed_parts: Vec<CompletedPart> = Vec::with_capacity(part_number as usize);
+        let mut upload_error: Option<anyhow::Error> = None;
 
         while let Some(result) = join_set.join_next().await {
-            let (pn, upload_result) = result.map_err(|e| anyhow!("Join error: {e}"))?;
-            let part = upload_result?;
+            let (pn, upload_result) = match result {
+                Ok(v) => v,
+                Err(e) => {
+                    upload_error = Some(anyhow!("Join error: {e}"));
+                    break;
+                }
+            };
 
-            completed_parts.push(
-                CompletedPart::builder()
-                    .part_number(pn)
-                    .e_tag(
-                        part.e_tag()
-                            .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
-                    )
-                    .build(),
-            );
+            match upload_result {
+                Ok(part) => {
+                    completed_parts.push(
+                        CompletedPart::builder()
+                            .part_number(pn)
+                            .e_tag(
+                                part.e_tag()
+                                    .ok_or_else(|| anyhow::anyhow!("Missing ETag"))?,
+                            )
+                            .build(),
+                    );
+                }
+                Err(e) => {
+                    upload_error = Some(e.into());
+                    break;
+                }
+            }
+        }
+
+        if let Some(err) = upload_error {
+            join_set.abort_all();
+            self.client
+                .abort_multipart_upload()
+                .bucket(&self.bucket_name)
+                .key(&key_)
+                .upload_id(upload_id)
+                .send()
+                .await
+                .ok();
+            return Err(err);
         }
 
         completed_parts.sort_by_key(|p| p.part_number());
@@ -545,12 +582,17 @@ impl S3Client {
             .await?;
 
         if encrypted {
-            self.insert_meta(
-                password.ok_or(anyhow!("No password"))?,
-                &uuid,
-                &_original_name,
-            )
-            .await?;
+            if let Err(e) = self
+                .insert_meta(
+                    password.ok_or(anyhow!("No password"))?,
+                    &uuid,
+                    &_original_name,
+                )
+                .await
+            {
+                self.delete_file(&key_).await.ok();
+                return Err(e);
+            }
         }
 
         if emit_events {
