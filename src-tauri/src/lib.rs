@@ -4,10 +4,10 @@ use tokio::sync::Mutex;
 
 mod commands;
 mod config;
-mod s3;
-mod types;
 mod crypto;
 mod metadata;
+mod s3;
+mod types;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
