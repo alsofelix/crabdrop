@@ -789,17 +789,10 @@ function setupShareModal(): void {
             btn.textContent = "Generating...";
             errorEl.classList.add("hidden");
 
-            let url = await invoke<string>("generate_presigned_url", {
+            urlInput.value = await invoke<string>("generate_presigned_url", {
                 key: fileKey,
                 expirySecs,
             });
-
-            if (modal.dataset.fileEncrypted === "true") {
-                const derivedKey = await invoke<string>("get_file_key", {key: fileKey});
-                url += "#key=" + derivedKey;
-            }
-
-            urlInput.value = url;
             urlContainer.classList.remove("hidden");
             btn.textContent = "Regenerate";
         } catch (err) {
