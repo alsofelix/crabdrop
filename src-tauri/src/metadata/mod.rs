@@ -11,15 +11,17 @@ pub fn get_filename(data: &[u8], file_uuid: &str) -> anyhow::Result<String> {
     }
 }
 
-pub fn get_uuid(data: &[u8], file_name: &str) -> anyhow::Result<Option<String>> {
-    let map: BiMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
-
-    if map.contains_right(file_name) {
-        return Ok(Some(map.get_by_right(file_name).unwrap().to_string()));
-    }
-    
-    Ok(None)
-}
+// NOT USED AS OF RIGHT NOW
+// pub fn get_uuid(data: &[u8], file_name: &str) -> anyhow::Result<Option<String>> {
+//     let map: BiMap<String, String> = serde_json::from_slice(data).map_err(|e| anyhow!("{e}"))?;
+//
+//     if map.contains_right(file_name) {
+//         return Ok(Some(map.get_by_right(file_name).unwrap().to_string()));
+//     }
+//
+//     Ok(None)
+// }
+// NOT USED AS OF RIGHT NOW
 
 pub fn put_filename(data: &[u8], uuid: &str, filename: &str) -> anyhow::Result<Vec<u8>> {
     let mut map: BiMap<String, String> =

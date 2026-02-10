@@ -1,4 +1,4 @@
-use crate::crypto::{decrypt_chunk, derive_key, encrypt};
+use crate::crypto::{decrypt_chunk, derive_key};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, metadata, types};
@@ -324,9 +324,7 @@ pub async fn download_file(
 
         while buf_decrypt.len() >= CHUNK_TOTAL {
             let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
-            println!("might not   ddddd");
             decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
-            println!("wow");
             writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
         }
         downloaded += n as u64;
@@ -343,7 +341,6 @@ pub async fn download_file(
     }
 
     if !buf_decrypt.is_empty() {
-        println!("bonjour be here");
         let mut chunk = buf_decrypt;
         decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
         writer.write_all(&chunk).await.map_err(|e| e.to_string())?;

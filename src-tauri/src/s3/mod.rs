@@ -414,12 +414,14 @@ impl S3Client {
             key.to_string()
         };
 
-        self.insert_meta(
+        if encrypted {
+            self.insert_meta(
                 password.ok_or(anyhow!("No password"))?,
                 &uuid,
                 &_original_name,
             )
-            .await?;
+                .await?;
+        }
 
         let con = self
             .client
@@ -463,11 +465,13 @@ impl S3Client {
 
             file.read_exact(&mut buffer)?;
 
-            encrypt(
-                &mut buffer,
-                password.ok_or(anyhow::anyhow!("Bad password?"))?,
-                _original_name.as_bytes(),
-            )?;
+            if encrypted {
+                encrypt(
+                    &mut buffer,
+                    password.ok_or(anyhow::anyhow!("Bad password?"))?,
+                    _original_name.as_bytes(),
+                )?;
+            }
 
             let part = self
                 .client
