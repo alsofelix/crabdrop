@@ -80,6 +80,10 @@ impl S3Client {
                     raw_name
                 };
 
+                if name == CRABDROP_METADATA_FILE_NAME {
+                    continue;
+                }
+
                 let f = File {
                     name,
                     key,
