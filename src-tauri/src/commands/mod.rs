@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::crypto::{decrypt_chunk, derive_key};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
@@ -7,7 +8,6 @@ use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use crate::config::Config;
 
 const CHUNK_TOTAL: usize = 24 + (1024 * 1024) + 16;
 
@@ -410,11 +410,7 @@ pub async fn generate_presigned_url(
 }
 
 #[tauri::command]
-pub async fn has_encrypted_password(
-    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
-    key: &str,
-    expiry_secs: u64
-) -> Result<bool, String> {
+pub async fn has_encrypted_password() -> Result<bool, String> {
     let config = Config::load().map_err(|e| e.to_string())?;
 
     Ok(config.encryption_pass_exists())
