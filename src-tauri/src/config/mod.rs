@@ -82,6 +82,10 @@ impl Config {
         std::fs::write(get_config_path()?, content)?;
         Ok(())
     }
+    
+    pub fn encryption_pass_exists(&self) -> bool {
+        !self.credentials.encryption_passphrase.is_empty()
+    }
 
     pub fn is_valid(&self) -> bool {
         !self.storage.bucket.is_empty()
