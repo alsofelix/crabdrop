@@ -1,6 +1,21 @@
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 
+type AlertType = "success" | "error" | "warning";
+
+function showAlert(message: string, type: AlertType = "error", durationMs = 3000): void {
+    const container = document.getElementById("alert-container")!;
+    const el = document.createElement("div");
+    el.className = `alert alert-${type}`;
+    el.textContent = message;
+    container.appendChild(el);
+
+    setTimeout(() => {
+        el.classList.add("alert-out");
+        el.addEventListener("animationend", () => el.remove());
+    }, durationMs);
+}
+
 interface UploadState {
     id: string;
     active: boolean;
@@ -627,8 +642,16 @@ function setupEncryptConfirmModal(): void {
 
     uploadBtn.addEventListener("click", () => {
         modal.classList.add("hidden");
+        invoke("has_encrypted_password").then(value => {
+            if (toggle.checked && !value) {
+            showAlert("You must set an encryption password for this, change in settings", "error", 5 * 1000);
+            return;
+        }
         startUpload(toggle.checked);
         toggle.checked = false;
+        });
+
+
     });
 
     cancelBtn.addEventListener("click", () => {
