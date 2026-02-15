@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.9 (2026-02-15)
+
+- Fix a small typo
+
 ## v0.2.8 (2026-02-15)
 
 - Fixes some part of the release workflow.
