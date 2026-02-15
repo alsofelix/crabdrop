@@ -1,6 +1,6 @@
 [package]
 name = "crabdrop"
-version = "0.2.11"
+version = "0.2.12"
 description = "An S3 visual tool"
 authors = ["Felix"]
 edition = "2021"

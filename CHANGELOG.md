@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.12 (2026-02-15)
+
+- Update some dependencies which introduce performance benefits
+
 ## v0.2.11 (2026-02-15)
 
 - Adds file searching functionality
