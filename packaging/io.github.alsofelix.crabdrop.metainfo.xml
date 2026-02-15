@@ -53,6 +53,13 @@
     </branding>
     <content_rating type="oars-1.1"/>
     <releases>
+        <release version="0.2.6" date="2026-02-15">
+            <description>
+                <ul>
+                    <li>Does not allow for files to be encrypted without a passphrase</li>
+                </ul>
+            </description>
+        </release>
         <release version="0.2.5" date="2026-02-15">
             <description>
                 <ul>
