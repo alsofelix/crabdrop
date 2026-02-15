@@ -90,3 +90,8 @@ jobs:
     needs: publish
     uses: ./.github/workflows/aur.yml
     secrets: inherit
+
+  flathub:
+    needs: publish
+    uses: ./.github/workflows/flathub.yml
+    secrets: inherit

@@ -1,0 +1,73 @@
+name: 'Flathub Publish'
+
+on:
+  workflow_call:
+
+jobs:
+  flathub-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout Flathub repo
+        uses: actions/checkout@v4
+        with:
+          repository: flathub/io.github.alsofelix.crabdrop
+          token: ${{ secrets.FLATHUB_TOKEN }}
+          path: flathub
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Update manifest
+        working-directory: flathub
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          COMMIT=$(git -C ../source rev-parse HEAD)
+          yq -i '.modules[0].sources[0].tag = "v'${VERSION}'"' io.github.alsofelix.crabdrop.yml
+          yq -i '.modules[0].sources[0].commit = "'${COMMIT}'"' io.github.alsofelix.crabdrop.yml
+
+      - name: Regenerate cargo-sources.json
+        run: |
+          uvx flatpak-cargo-generator \
+            source/src-tauri/Cargo.lock \
+            -o flathub/cargo-sources.json
+
+      - name: Regenerate node-sources.json
+        run: |
+          uvx flatpak-node-generator npm \
+            source/package-lock.json \
+            -o flathub/node-sources.json
+
+      - name: Create PR
+        working-directory: flathub
+        env:
+          GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "update-v${VERSION}"
+          git add -A
+          git commit -m "Update to v${VERSION}"
+          git push origin "update-v${VERSION}"
+          gh pr create \
+            --title "Update to v${VERSION}" \
+            --body "Automated update from release workflow"
+
+      - name: Wait for checks and merge
+        working-directory: flathub
+        env:
+          GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          PR=$(gh pr list --head "update-v${VERSION}" --json number -q '.[0].number')
+          gh pr checks "$PR" --watch --interval 60 --timeout 2400
+          gh pr merge "$PR" --merge --delete-branch
