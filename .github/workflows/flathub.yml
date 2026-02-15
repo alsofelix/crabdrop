@@ -69,5 +69,5 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           PR=$(gh pr list --head "update-v${VERSION}" --json number -q '.[0].number')
-          gh pr checks "$PR" --watch --interval 60 --timeout 2400
+          gh pr checks "$PR" --watch --interval 60 --fail-fast
           gh pr merge "$PR" --merge --delete-branch
