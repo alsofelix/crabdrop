@@ -71,6 +71,22 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'crabdrop v__VERSION__'
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }}
+
+  aur:
+    needs: publish
+    uses: ./.github/workflows/aur.yml
+    secrets: inherit
