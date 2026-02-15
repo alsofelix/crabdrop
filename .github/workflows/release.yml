@@ -50,6 +50,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: tauri-build
 
       - name: Install frontend deps
         run: bun install
