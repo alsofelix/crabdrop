@@ -61,6 +61,6 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'crabdrop v__VERSION__'
           releaseBody: 'See assets for downloads.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
