@@ -578,44 +578,47 @@ function getFilenameFromPath(path: string): string {
 
 function navigateUp(): void {
     const parts = currentPath.split("/").filter(Boolean);
+    if (!parts.length) {
+        loadConfig();
+        return;
+    }
     parts.pop();
-    const newPath = parts.length ? parts.join("/") + "/" : "";
-    loadFiles(newPath);
+    loadFiles(parts.length ? parts.join("/") + "/" : "");
 }
 
-function setUpSettingsButton() {
+async function loadConfig(): Promise<void> {
+    const config: Config = await invoke<Config>("get_config");
+
+    (document.getElementById("endpoint") as HTMLInputElement).value = config.storage.endpoint;
+    (document.getElementById("bucket") as HTMLInputElement).value = config.storage.bucket;
+    (document.getElementById("region") as HTMLInputElement).value = config.storage.region;
+    (document.getElementById("access-key") as HTMLInputElement).value = config.access_key_id;
+
+    const secretEl = document.getElementById("secret-key") as HTMLInputElement;
+    secretEl.required = !config.has_secret;
+    secretEl.value = "";
+    secretEl.placeholder = config.has_secret
+        ? "Saved in Keychain (leave blank to keep)"
+        : "Enter secret key";
+
+    const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
+    encPassEl.value = "";
+    encPassEl.placeholder = config.has_encryption_passphrase
+        ? "Saved (leave blank to keep)"
+        : "Encryption passphrase (optional)";
+    encPassEl.required = false;
+
+    showScreen("setup");
+}
+
+function setUpSettingsButton(): void {
     document.getElementById("btn-settings")?.addEventListener("click", async () => {
         try {
-            const config: Config = await invoke<Config>("get_config");
-
-            (document.getElementById("endpoint") as HTMLInputElement).value = config.storage.endpoint;
-            (document.getElementById("bucket") as HTMLInputElement).value = config.storage.bucket;
-            (document.getElementById("region") as HTMLInputElement).value = config.storage.region;
-            (document.getElementById("access-key") as HTMLInputElement).value = config.access_key_id;
-
-            const secretEl = document.getElementById("secret-key") as HTMLInputElement;
-            secretEl.required = !config.has_secret;
-
-            secretEl.value = "";
-            secretEl.placeholder = config.has_secret
-                ? "Saved in Keychain (leave blank to keep)"
-                : "Enter secret key";
-
-            const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
-            encPassEl.value = "";
-            if (config.has_encryption_passphrase) {
-                encPassEl.placeholder = "Saved (leave blank to keep)";
-                encPassEl.required = false;
-            } else {
-                encPassEl.placeholder = "Encryption passphrase (optional)";
-                encPassEl.required = false;
-            }
-
-            showScreen("setup");
+            await loadConfig();
         } catch (err) {
             console.error(err);
         }
-    })
+    });
 }
 
 function setupDragOverlay(): void {
@@ -644,11 +647,11 @@ function setupEncryptConfirmModal(): void {
         modal.classList.add("hidden");
         invoke("has_encrypted_password").then(value => {
             if (toggle.checked && !value) {
-            showAlert("You must set an encryption password for this, change in settings", "error", 5 * 1000);
-            return;
-        }
-        startUpload(toggle.checked);
-        toggle.checked = false;
+                showAlert("You must set an encryption password for this, change in settings", "error", 5 * 1000);
+                return;
+            }
+            startUpload(toggle.checked);
+            toggle.checked = false;
         });
 
 
