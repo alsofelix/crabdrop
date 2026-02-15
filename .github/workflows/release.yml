@@ -57,6 +57,7 @@ jobs:
 
       - name: Extract release notes
         id: notes
+        shell: bash
         run: |
           # Extract the first version section from CHANGELOG.md
           NOTES=$(awk '/^## /{if(found) exit; found=1; next} found' CHANGELOG.md)
