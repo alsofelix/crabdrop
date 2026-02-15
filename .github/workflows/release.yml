@@ -54,13 +54,22 @@ jobs:
       - name: Install frontend deps
         run: bun install
 
+      - name: Extract release notes
+        id: notes
+        run: |
+          # Extract the first version section from CHANGELOG.md
+          NOTES=$(awk '/^## /{if(found) exit; found=1; next} found' CHANGELOG.md)
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
           releaseName: 'crabdrop v__VERSION__'
-          releaseBody: 'See assets for downloads.'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
