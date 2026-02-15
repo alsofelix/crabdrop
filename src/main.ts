@@ -647,7 +647,7 @@ function setupEncryptConfirmModal(): void {
         modal.classList.add("hidden");
         invoke("has_encrypted_password").then(value => {
             if (toggle.checked && !value) {
-                showAlert("You must set an encryption password for this, change in settings", "error", 5 * 1000);
+                showAlert("You must set an encryption passphrase for this, change in settings", "error", 5 * 1000);
                 return;
             }
             startUpload(toggle.checked);
