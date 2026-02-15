@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.1 (2026-02-15)
+
+- Fix release versioning
+
 ## v0.3.0 (2026-02-15)
 
 - Add filtering options to filter by type, encryption status and more.
