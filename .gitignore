@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 
 bump.sh
+
+src-tauri/gen/apple
