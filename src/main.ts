@@ -80,13 +80,18 @@ interface DropPayload {
 }
 
 let currentPath = "";
+let currentFiles: File[] = [];
 let pendingDropPaths: string[] = [];
 
 async function loadFiles(prefix: string): Promise<void> {
     try {
         const files = await invoke<File[]>("list_files", {prefix});
         currentPath = prefix;
+        currentFiles = files;
         updateBreadcrumb(prefix);
+
+        const searchInput = document.getElementById("search-input") as HTMLInputElement;
+        searchInput.value = "";
         renderFiles(files);
     } catch (e) {
         console.error("Failed to load files:", e);
@@ -790,6 +795,15 @@ function setupFolderModal() {
 function setupEventListeners(): void {
     document.getElementById("btn-back")?.addEventListener("click", navigateUp);
     document.getElementById("btn-refresh")?.addEventListener("click", () => loadFiles(currentPath));
+
+    document.getElementById("search-input")?.addEventListener("input", (e) => {
+        const query = (e.target as HTMLInputElement).value.toLowerCase();
+        if (!query) {
+            renderFiles(currentFiles);
+            return;
+        }
+        renderFiles(currentFiles.filter(f => f.name.toLowerCase().includes(query)));
+    });
 }
 
 function showShareModal(file: File): void {

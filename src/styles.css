@@ -148,6 +148,26 @@ header h1 {
     background: #4a4a4a;
 }
 
+#search-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 0.9em;
+    min-width: 0;
+}
+
+#search-input:focus {
+    outline: none;
+    border-color: #ff6b35;
+}
+
+#search-input::placeholder {
+    color: #666;
+}
+
 .toolbar .btn-right {
     margin-left: auto;
 }
