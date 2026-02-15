@@ -75,7 +75,11 @@ impl S3Client {
                 let raw_name = key.split("/").last().unwrap_or(&key).to_string();
                 let encrypted = metadata::is_in_meta(&metadata, &raw_name)?;
                 let name = if encrypted {
-                    metadata::get_filename(&metadata, &raw_name)?
+                    let name_ = metadata::get_filename(&metadata, &raw_name);
+                    let raw_name =
+                        name_.unwrap_or_else(|_| String::from("encryption-passphrase-wrong"));
+
+                    raw_name
                 } else {
                     raw_name
                 };

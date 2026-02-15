@@ -172,6 +172,62 @@ header h1 {
     margin-left: auto;
 }
 
+#btn-filter.active {
+    background: #ff6b35;
+}
+
+#sort-select {
+    padding: 8px 10px;
+    background: #3a3a3a;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 0.85em;
+    cursor: pointer;
+    color-scheme: dark;
+}
+
+#sort-select:focus {
+    outline: none;
+}
+
+.filter-bar {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 15px;
+    padding: 10px 15px;
+    background: #2a2a2a;
+    border-radius: 6px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 0.8em;
+    color: #888;
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 6px 10px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.85em;
+    cursor: pointer;
+    color-scheme: dark;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: #ff6b35;
+}
+
 .file-list {
     background: #2a2a2a;
     border-radius: 6px;

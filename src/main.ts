@@ -83,6 +83,81 @@ let currentPath = "";
 let currentFiles: File[] = [];
 let pendingDropPaths: string[] = [];
 
+interface FilterState {
+    type: "all" | "folders" | "files";
+    encryption: "all" | "encrypted" | "unencrypted";
+    size: "all" | "small" | "medium" | "large";
+}
+
+const activeFilters: FilterState = {
+    type: "all",
+    encryption: "all",
+    size: "all",
+};
+
+type SortKey = "name-asc" | "name-desc" | "size-asc" | "size-desc" | "date-desc" | "date-asc";
+let activeSort: SortKey = "name-asc";
+
+function applyFilters(): void {
+    const query = (document.getElementById("search-input") as HTMLInputElement).value.toLowerCase();
+
+    let filtered = currentFiles;
+
+    if (query) {
+        filtered = filtered.filter(f => f.name.toLowerCase().includes(query));
+    }
+
+    if (activeFilters.type === "folders") {
+        filtered = filtered.filter(f => f.isFolder);
+    } else if (activeFilters.type === "files") {
+        filtered = filtered.filter(f => !f.isFolder);
+    }
+
+    if (activeFilters.encryption === "encrypted") {
+        filtered = filtered.filter(f => f.encrypted);
+    } else if (activeFilters.encryption === "unencrypted") {
+        filtered = filtered.filter(f => !f.encrypted);
+    }
+
+    if (activeFilters.size !== "all") {
+        filtered = filtered.filter(f => {
+            if (f.isFolder || f.size === null) return false;
+            const mb = f.size / (1024 * 1024);
+            if (activeFilters.size === "small") return mb < 1;
+            if (activeFilters.size === "medium") return mb >= 1 && mb <= 100;
+            return mb > 100;
+        });
+    }
+
+    // Folders first, then sort within each group
+    const folders = filtered.filter(f => f.isFolder);
+    const files = filtered.filter(f => !f.isFolder);
+
+    const sortFn = (a: File, b: File): number => {
+        switch (activeSort) {
+            case "name-asc":
+                return a.name.localeCompare(b.name);
+            case "name-desc":
+                return b.name.localeCompare(a.name);
+            case "size-asc":
+                return (a.size ?? 0) - (b.size ?? 0);
+            case "size-desc":
+                return (b.size ?? 0) - (a.size ?? 0);
+            case "date-desc":
+                return (b.lastModified ?? 0) - (a.lastModified ?? 0);
+            case "date-asc":
+                return (a.lastModified ?? 0) - (b.lastModified ?? 0);
+            default:
+                return 0;
+        }
+    };
+
+    folders.sort(sortFn);
+    files.sort(sortFn);
+
+    renderFiles([...folders, ...files]);
+}
+
 async function loadFiles(prefix: string): Promise<void> {
     try {
         const files = await invoke<File[]>("list_files", {prefix});
@@ -92,6 +167,17 @@ async function loadFiles(prefix: string): Promise<void> {
 
         const searchInput = document.getElementById("search-input") as HTMLInputElement;
         searchInput.value = "";
+
+        activeFilters.type = "all";
+        activeFilters.encryption = "all";
+        activeFilters.size = "all";
+        (document.getElementById("filter-type") as HTMLSelectElement).value = "all";
+        (document.getElementById("filter-encryption") as HTMLSelectElement).value = "all";
+        (document.getElementById("filter-size") as HTMLSelectElement).value = "all";
+
+        activeSort = "name-asc";
+        (document.getElementById("sort-select") as HTMLSelectElement).value = "name-asc";
+
         renderFiles(files);
     } catch (e) {
         console.error("Failed to load files:", e);
@@ -796,13 +882,39 @@ function setupEventListeners(): void {
     document.getElementById("btn-back")?.addEventListener("click", navigateUp);
     document.getElementById("btn-refresh")?.addEventListener("click", () => loadFiles(currentPath));
 
-    document.getElementById("search-input")?.addEventListener("input", (e) => {
-        const query = (e.target as HTMLInputElement).value.toLowerCase();
-        if (!query) {
-            renderFiles(currentFiles);
-            return;
-        }
-        renderFiles(currentFiles.filter(f => f.name.toLowerCase().includes(query)));
+    document.getElementById("search-input")?.addEventListener("input", () => {
+        applyFilters();
+    });
+
+    const filterBtn = document.getElementById("btn-filter")!;
+    const filterBar = document.getElementById("filter-bar")!;
+
+    filterBtn.addEventListener("click", () => {
+        const open = filterBar.classList.toggle("hidden");
+        filterBtn.classList.toggle("active", !open);
+    });
+
+    const filterType = document.getElementById("filter-type") as HTMLSelectElement;
+    const filterEncryption = document.getElementById("filter-encryption") as HTMLSelectElement;
+    const filterSize = document.getElementById("filter-size") as HTMLSelectElement;
+
+    filterType.addEventListener("change", () => {
+        activeFilters.type = filterType.value as FilterState["type"];
+        applyFilters();
+    });
+    filterEncryption.addEventListener("change", () => {
+        activeFilters.encryption = filterEncryption.value as FilterState["encryption"];
+        applyFilters();
+    });
+    filterSize.addEventListener("change", () => {
+        activeFilters.size = filterSize.value as FilterState["size"];
+        applyFilters();
+    });
+
+    const sortSelect = document.getElementById("sort-select") as HTMLSelectElement;
+    sortSelect.addEventListener("change", () => {
+        activeSort = sortSelect.value as SortKey;
+        applyFilters();
     });
 }
 

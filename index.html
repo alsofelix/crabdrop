@@ -97,8 +97,45 @@
         <button id="btn-back">← Back</button>
         <button id="btn-refresh">Refresh</button>
         <button id="btn-new-folder">New Folder</button>
-        <input type="text" id="search-input" placeholder="Filter files..." />
+        <label for="search-input"></label><input type="text" id="search-input" placeholder="Search files..." />
+        <button id="btn-filter">Filter</button>
+        <select id="sort-select" title="Sort by">
+            <option value="name-asc">Name A–Z</option>
+            <option value="name-desc">Name Z–A</option>
+            <option value="size-asc">Size ↑</option>
+            <option value="size-desc">Size ↓</option>
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+        </select>
         <button id="btn-settings" class="btn-right">⚙️</button>
+    </div>
+
+    <div id="filter-bar" class="filter-bar hidden">
+        <div class="filter-group">
+            <label for="filter-type">Type</label>
+            <select id="filter-type">
+                <option value="all">All</option>
+                <option value="folders">Folders only</option>
+                <option value="files">Files only</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filter-encryption">Encryption</label>
+            <select id="filter-encryption">
+                <option value="all">All</option>
+                <option value="encrypted">Encrypted</option>
+                <option value="unencrypted">Unencrypted</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filter-size">Size</label>
+            <select id="filter-size">
+                <option value="all">All</option>
+                <option value="small">&lt; 1 MB</option>
+                <option value="medium">1–100 MB</option>
+                <option value="large">&gt; 100 MB</option>
+            </select>
+        </div>
     </div>
 
     <div id="file-list" class="file-list"></div>
