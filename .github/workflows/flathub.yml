@@ -69,5 +69,15 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           PR=$(gh pr list --head "update-v${VERSION}" --json number -q '.[0].number')
+          
+          for i in $(seq 1 30); do
+            OUTPUT=$(gh pr checks "$PR" 2>&1 || true)
+            if ! echo "$OUTPUT" | grep -q "no checks reported"; then
+              break
+            fi
+            echo "Waiting for checks to start... (attempt $i/30)"
+            sleep 30
+          done
+          
           gh pr checks "$PR" --watch --interval 60 --fail-fast
           gh pr merge "$PR" --merge --delete-branch
