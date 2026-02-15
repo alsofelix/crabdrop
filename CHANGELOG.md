@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.10 (2026-02-15)
+
+- Fix upload panel re-rendering entire list on every progress event
+
 ## v0.2.9 (2026-02-15)
 
 - Fix a small typo
