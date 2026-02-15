@@ -2,7 +2,7 @@
 
 ## v0.2.8 (2026-02-15)
 
-- No nFixes some part of the release workflow.
+- Fixes some part of the release workflow.
 
 ## v0.2.7 (2026-02-15)
 
