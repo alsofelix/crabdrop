@@ -204,11 +204,20 @@ function renderUploadOverlay() {
 
     panel.classList.remove("hidden");
     title.textContent = uploadStates.size === 1 ? "Uploading" : `Uploading (${uploadStates.size})`;
-    list.innerHTML = "";
 
     for (const [id, state] of uploadStates) {
-        const item = createUploadItem(id, state);
-        list.appendChild(item);
+        const existing = list.querySelector<HTMLElement>(`[data-upload-id="${id}"]`);
+        if (existing) {
+            updateUploadItem(existing, state);
+        } else {
+            list.appendChild(createUploadItem(id, state));
+        }
+    }
+
+    for (const child of [...list.children] as HTMLElement[]) {
+        if (!uploadStates.has(child.dataset.uploadId!)) {
+            child.remove();
+        }
     }
 }
 
@@ -250,6 +259,36 @@ function createUploadItem(id: string, state: UploadState): HTMLElement {
     });
 
     return root;
+}
+
+function updateUploadItem(root: HTMLElement, state: UploadState): void {
+    const fill = root.querySelector(".upload-progress-fill") as HTMLElement;
+    if (state.percent < 0) {
+        fill.classList.add("indeterminate");
+        fill.style.width = "";
+    } else {
+        fill.classList.remove("indeterminate");
+        fill.style.width = `${state.percent}%`;
+    }
+
+    root.querySelector(".upload-icon")!.textContent = state.isFolder ? "📁" : "📄";
+    root.querySelector(".upload-name")!.textContent = state.filename;
+    root.querySelector(".upload-percent")!.textContent = state.percent < 0 ? "" : `${state.percent}%`;
+
+    const details = root.querySelector(".upload-details")!;
+    details.innerHTML = "";
+    if (state.isMultipart && state.totalParts > 0) {
+        const partInfo = document.createElement("span");
+        partInfo.className = "upload-part-info";
+        partInfo.textContent = `Part ${state.part}/${state.totalParts}`;
+        details.appendChild(partInfo);
+    }
+    if (state.isFolder && state.totalFiles > 0) {
+        const fileInfo = document.createElement("span");
+        fileInfo.className = "upload-file-info";
+        fileInfo.textContent = `${state.currentFile}/${state.totalFiles} files`;
+        details.appendChild(fileInfo);
+    }
 }
 
 function showDownloadOverlay() {
