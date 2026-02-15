@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.0 (2026-02-15)
+
+- Add filtering options to filter by type, encryption status and more.
+- Add sorting option (folders will be at the top)
+- Performance increases
+
 ## v0.2.12 (2026-02-15)
 
 - Update some dependencies which introduce performance benefits
