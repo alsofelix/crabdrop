@@ -255,6 +255,14 @@ header h1 {
     background: #3a3a3a;
 }
 
+.file-item.selected {
+    background: #2a4a6b;
+}
+
+.file-item.selected:hover {
+    background: #335a7f;
+}
+
 .file-item:last-child {
     border-bottom: none;
 }
@@ -370,6 +378,15 @@ header h1 {
 #folder-create {
     background: #ff6b35;
     color: #fff;
+}
+
+.btn-danger {
+    background: #d9534f;
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #c9302c;
 }
 
 .upload-panel {

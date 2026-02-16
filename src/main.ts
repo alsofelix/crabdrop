@@ -51,6 +51,8 @@ let downloadState: DownloadState = {
     totalBytes: 0,
 };
 let selectedFile: File | null = null;
+let selectedFileIndex: number | null = null;
+let displayedFiles: File[] = [];
 
 interface File {
     name: string;
@@ -206,6 +208,7 @@ async function init() {
     setupDownloadEvents();
     setupContextMenu();
     setupShareModal();
+    setupKeyboardShortcuts();
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
@@ -217,6 +220,7 @@ async function init() {
 }
 
 async function downloadFile(file: File): Promise<void> {
+    if (downloadState.active) return;
     try {
         await invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted});
     } catch (e) {
@@ -231,6 +235,42 @@ async function deleteFile(file: File): Promise<void> {
     } catch (e) {
         console.error("Delete failed:", e);
     }
+}
+
+function confirmDelete(file: File): void {
+    const modal = document.getElementById("delete-confirm-modal")!;
+    const message = document.getElementById("delete-confirm-message")!;
+    const cancelBtn = document.getElementById("delete-confirm-cancel")!;
+    const okBtn = document.getElementById("delete-confirm-ok")!;
+
+    message.textContent = file.isFolder
+        ? `Delete folder "${file.name}" and all its contents?`
+        : `Delete "${file.name}"?`;
+
+    modal.classList.remove("hidden");
+
+    const cleanup = () => {
+        cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+        okBtn.replaceWith(okBtn.cloneNode(true));
+    };
+
+    cancelBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        cleanup();
+    }, {once: true});
+
+    okBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        cleanup();
+        deleteFile(file);
+    }, {once: true});
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.classList.add("hidden");
+            cleanup();
+        }
+    }, {once: true});
 }
 
 async function handleConnection() {
@@ -595,11 +635,42 @@ function updateBreadcrumb(path: string): void {
 function renderFiles(files: File[]): void {
     const list = document.getElementById("file-list")!;
     list.innerHTML = "";
+    displayedFiles = files;
+    selectedFile = null;
+    selectedFileIndex = null;
 
-    for (const file of files) {
-        const item = createFileItem(file);
+    for (let i = 0; i < files.length; i++) {
+        const item = createFileItem(files[i], i);
         list.appendChild(item);
     }
+}
+
+function selectFile(index: number): void {
+    const list = document.getElementById("file-list")!;
+    const items = list.querySelectorAll(".file-item");
+
+    if (selectedFileIndex !== null && items[selectedFileIndex]) {
+        items[selectedFileIndex].classList.remove("selected");
+    }
+
+    if (index < 0 || index >= displayedFiles.length) return;
+
+    selectedFileIndex = index;
+    selectedFile = displayedFiles[index];
+    items[index].classList.add("selected");
+    (items[index] as HTMLElement).scrollIntoView({block: "nearest"});
+}
+
+function clearSelection(): void {
+    if (selectedFileIndex !== null) {
+        const list = document.getElementById("file-list")!;
+        const items = list.querySelectorAll(".file-item");
+        if (items[selectedFileIndex]) {
+            items[selectedFileIndex].classList.remove("selected");
+        }
+    }
+    selectedFile = null;
+    selectedFileIndex = null;
 }
 
 function showContextMenu(e: MouseEvent, file: File): void {
@@ -640,7 +711,7 @@ function setupContextMenu(): void {
 
     document.getElementById("ctx-delete")?.addEventListener("click", () => {
         if (selectedFile) {
-            deleteFile(selectedFile);
+            confirmDelete(selectedFile);
         }
         hideContextMenu();
     });
@@ -653,7 +724,7 @@ function setupContextMenu(): void {
     });
 }
 
-function createFileItem(file: File): HTMLElement {
+function createFileItem(file: File, index: number): HTMLElement {
     const item = document.createElement("div");
     item.className = "file-item";
 
@@ -681,8 +752,16 @@ function createFileItem(file: File): HTMLElement {
 
     item.appendChild(size);
 
-    item.addEventListener("click", () => handleFileClick(file));
-    item.addEventListener("contextmenu", (e) => showContextMenu(e, file));
+    item.addEventListener("click", () => {
+        selectFile(index);
+    });
+    item.addEventListener("dblclick", () => {
+        handleFileClick(file);
+    });
+    item.addEventListener("contextmenu", (e) => {
+        selectFile(index);
+        showContextMenu(e, file);
+    });
     return item;
 }
 
@@ -875,6 +954,52 @@ function setupFolderModal() {
 
     modal.addEventListener("click", (e) => {
         if (e.target === modal) modal.classList.add("hidden");
+    });
+}
+
+function setupKeyboardShortcuts(): void {
+    document.addEventListener("keydown", (e) => {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+        if (document.querySelector(".modal:not(.hidden)")) return;
+        if (document.getElementById("browser-screen")!.classList.contains("hidden")) return;
+
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                selectFile(selectedFileIndex === null ? 0 : selectedFileIndex + 1);
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                if (selectedFileIndex !== null && selectedFileIndex > 0) {
+                    selectFile(selectedFileIndex - 1);
+                }
+                break;
+            case "Enter":
+                if (selectedFile) {
+                    handleFileClick(selectedFile);
+                }
+                break;
+            case "Escape":
+                clearSelection();
+                break;
+            case "Delete":
+            case "Backspace":
+                if (selectedFile) {
+                    confirmDelete(selectedFile);
+                }
+                break;
+            case "F5":
+                e.preventDefault();
+                loadFiles(currentPath);
+                break;
+            case "r":
+                if (e.metaKey || e.ctrlKey) {
+                    e.preventDefault();
+                    loadFiles(currentPath);
+                }
+                break;
+        }
     });
 }
 
