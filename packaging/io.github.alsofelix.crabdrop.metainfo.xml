@@ -50,6 +50,17 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.2" date="2026-02-16">
+      <description>
+        <ul>
+          <li>Added keyboard navigation for the file browser (Arrow Up/Down to browse, Enter to open, Escape to deselect)</li>
+          <li>Added keyboard shortcuts for refresh (F5, Ctrl/Cmd+R) and delete (Delete/Backspace)</li>
+          <li>Fixed a crash when triggering multiple downloads simultaneously</li>
+          <li>Delete now shows a confirmation dialog before removing files or folders</li>
+          <li>Single click selects a file, double click opens/downloads</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-02-15">
       <description>
         <ul>

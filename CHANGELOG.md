@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.2 (2026-02-16)
+
+- Added keyboard navigation for the file browser (Arrow Up/Down to browse, Enter to open, Escape to deselect)
+- Added keyboard shortcuts for refresh (F5, Ctrl/Cmd+R) and delete (Delete/Backspace)
+- Fixed a crash when triggering multiple downloads simultaneously
+- Delete now shows a confirmation dialog before removing files or folders
+- Single click selects a file, double click opens/downloads
+
 ## v0.3.1 (2026-02-15)
 
 - Fix release versioning
