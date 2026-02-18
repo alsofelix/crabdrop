@@ -163,24 +163,26 @@ function applyFilters(): void {
 async function loadFiles(prefix: string): Promise<void> {
     try {
         const files = await invoke<File[]>("list_files", {prefix});
+        const isNewPath = prefix !== currentPath;
         currentPath = prefix;
         currentFiles = files;
         updateBreadcrumb(prefix);
 
-        const searchInput = document.getElementById("search-input") as HTMLInputElement;
-        searchInput.value = "";
+        if (isNewPath) {
+            (document.getElementById("search-input") as HTMLInputElement).value = "";
 
-        activeFilters.type = "all";
-        activeFilters.encryption = "all";
-        activeFilters.size = "all";
-        (document.getElementById("filter-type") as HTMLSelectElement).value = "all";
-        (document.getElementById("filter-encryption") as HTMLSelectElement).value = "all";
-        (document.getElementById("filter-size") as HTMLSelectElement).value = "all";
+            activeFilters.type = "all";
+            activeFilters.encryption = "all";
+            activeFilters.size = "all";
+            (document.getElementById("filter-type") as HTMLSelectElement).value = "all";
+            (document.getElementById("filter-encryption") as HTMLSelectElement).value = "all";
+            (document.getElementById("filter-size") as HTMLSelectElement).value = "all";
 
-        activeSort = "name-asc";
-        (document.getElementById("sort-select") as HTMLSelectElement).value = "name-asc";
+            activeSort = "name-asc";
+            (document.getElementById("sort-select") as HTMLSelectElement).value = "name-asc";
+        }
 
-        renderFiles(files);
+        applyFilters();
     } catch (e) {
         console.error("Failed to load files:", e);
     }
