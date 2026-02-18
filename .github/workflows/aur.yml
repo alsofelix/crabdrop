@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 jobs:
-  aur-publish:
+  aur-publish-bin:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +40,79 @@ jobs:
         uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
         with:
           pkgname: crabdrop-bin
+          pkgbuild: ./PKGBUILD
+          updpkgsums: true
+          commit_username: 'Felix'
+          commit_email: 'felix.crabdrop@gmail.com'
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
+          commit_message: "Update to ${{ steps.version.outputs.version }}"
+
+  aur-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate PKGBUILD
+        run: |
+          cat > PKGBUILD << 'EOF'
+          # Maintainer: Felix <felix.crabdrop@gmail.com>
+          pkgname=crabdrop
+          pkgver=${VERSION}
+          pkgrel=1
+          pkgdesc="A simple, fast file manager for S3-compatible storage"
+          arch=('x86_64')
+          url="https://github.com/alsofelix/crabdrop"
+          license=('MIT')
+          depends=('webkit2gtk-4.1' 'gtk3' 'openssl')
+          makedepends=('cargo' 'npm' 'libappindicator-gtk3' 'librsvg' 'patchelf')
+          options=(!lto)
+          provides=('crabdrop')
+          conflicts=('crabdrop-bin')
+          source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
+          sha256sums=('SKIP')
+          
+          prepare() {
+            cd "${pkgname}-${pkgver}"
+            export RUSTUP_TOOLCHAIN=stable
+            export CARGO_HOME="${srcdir}/cargo"
+            cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+          }
+          
+          build() {
+            cd "${pkgname}-${pkgver}"
+            export RUSTUP_TOOLCHAIN=stable
+            export CARGO_HOME="${srcdir}/cargo"
+            npm ci
+            npm run tauri -- build --no-bundle
+          }
+          
+          package() {
+            cd "${pkgname}-${pkgver}"
+          
+            install -Dm755 src-tauri/target/release/crabdrop -t "${pkgdir}/usr/bin/"
+            install -Dm644 packaging/io.github.alsofelix.crabdrop.desktop -t "${pkgdir}/usr/share/applications/"
+            install -Dm644 packaging/io.github.alsofelix.crabdrop.metainfo.xml -t "${pkgdir}/usr/share/metainfo/"
+          
+            install -Dm644 src-tauri/icons/32x32.png \
+              "${pkgdir}/usr/share/icons/hicolor/32x32/apps/io.github.alsofelix.crabdrop.png"
+            install -Dm644 src-tauri/icons/128x128.png \
+              "${pkgdir}/usr/share/icons/hicolor/128x128/apps/io.github.alsofelix.crabdrop.png"
+            install -Dm644 "src-tauri/icons/128x128@2x.png" \
+              "${pkgdir}/usr/share/icons/hicolor/256x256/apps/io.github.alsofelix.crabdrop.png"
+          
+            install -Dm644 LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
+          }
+          EOF
+          sed -i "s/\${VERSION}/${{ steps.version.outputs.version }}/" PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        with:
+          pkgname: crabdrop
           pkgbuild: ./PKGBUILD
           updpkgsums: true
           commit_username: 'Felix'
