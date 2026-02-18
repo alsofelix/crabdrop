@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.3 (2026-02-18)
+
+- Fixed sorting and filters resetting when refreshing or creating a folder
+
 ## v0.3.2 (2026-02-16)
 
 - Added keyboard navigation for the file browser (Arrow Up/Down to browse, Enter to open, Escape to deselect)
