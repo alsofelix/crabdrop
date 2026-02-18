@@ -38,6 +38,12 @@ Install [`crabdrop-bin`](https://aur.archlinux.org/packages/crabdrop-bin) from t
 yay -S crabdrop-bin
 ```
 
+Or to build from from [source](https://aur.archlinux.org/packages/crabdrop):
+
+```bash
+yay -S crabdrop
+```
+
 ## Building from source
 
 Requires [Rust](https://rust-lang.org/tools/install/) and [Bun](https://bun.sh/).
