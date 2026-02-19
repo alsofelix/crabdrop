@@ -814,10 +814,13 @@ async function loadConfig(): Promise<void> {
 
     const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
     encPassEl.value = "";
-    encPassEl.placeholder = config.has_encryption_passphrase
-        ? "Saved (leave blank to keep)"
-        : "Encryption passphrase (optional)";
-    encPassEl.required = false;
+    if (config.has_encryption_passphrase) {
+        encPassEl.placeholder = "Saved (leave blank to keep)";
+        encPassEl.required = false;
+    } else {
+        encPassEl.placeholder = "Encryption passphrase (make it safe)";
+        encPassEl.required = true;
+    }
 
     showScreen("setup");
 }
