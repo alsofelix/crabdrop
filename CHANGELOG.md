@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.5 (2026-02-19)
+
+- Improves how handling of metadata works for crabdrop, changing encryption passphrase will no longer return aead::Error
+- Improves handling of errors when downloading files (wrong passphrase for example)
+
 ## v0.3.4 (2026-02-19)
 
 - Make encryption passphrase required to setup fixing a bug where you would not be able to setup a passphrase in the case you did not set one up initially.

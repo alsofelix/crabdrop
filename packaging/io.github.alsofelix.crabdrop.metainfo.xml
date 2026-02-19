@@ -50,6 +50,14 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.5" date="2026-02-19">
+      <description>
+        <ul>
+          <li>Improves how handling of metadata works for crabdrop, changing encryption passphrase will no longer return aead::Error</li>
+          <li>Improves handling of errors when downloading files (wrong passphrase for example)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-02-19">
       <description>
         <ul>
