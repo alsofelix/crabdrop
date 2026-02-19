@@ -227,6 +227,11 @@ async function downloadFile(file: File): Promise<void> {
         await invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted});
     } catch (e) {
         console.error("Download failed:", e);
+        downloadState.active = false;
+        const msg = String(e).toLowerCase().includes("aead")
+            ? "Encryption passphrase does not match"
+            : String(e);
+        showAlert(msg, "error");
     }
 }
 
