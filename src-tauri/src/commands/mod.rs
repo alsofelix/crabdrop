@@ -83,7 +83,13 @@ pub async fn save_config(
 
     if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
         if client.meta_file_exists().await {
-            client.re_encrypt_metadata(x.as_bytes(), config_curr.credentials.encryption_passphrase.as_bytes()).await.map_err(|e| e.to_string())?;
+            client
+                .re_encrypt_metadata(
+                    x.as_bytes(),
+                    config_curr.credentials.encryption_passphrase.as_bytes(),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
         config_curr.credentials.encryption_passphrase = x;
