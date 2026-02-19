@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.4 (2026-02-19)
+
+- Make encryption passphrase required to setup fixing a bug where you would not be able to setup a passphrase in the case you did not set one up initially.
+
 ## v0.3.3 (2026-02-18)
 
 - Fixed sorting and filters resetting when refreshing or creating a folder

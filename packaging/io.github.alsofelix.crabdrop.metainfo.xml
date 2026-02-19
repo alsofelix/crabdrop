@@ -50,6 +50,13 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.4" date="2026-02-19">
+      <description>
+        <ul>
+          <li>Make encryption passphrase required to setup fixing a bug where you would not be able to setup a passphrase in the case you did not set one up initially.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.3" date="2026-02-18">
       <description>
         <ul>
