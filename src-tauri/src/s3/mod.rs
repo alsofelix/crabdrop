@@ -263,6 +263,15 @@ impl S3Client {
         }
     }
 
+    pub async fn re_encrypt_metadata(&self, password: &[u8], old_password: &[u8]) -> anyhow::Result<()> {
+        println!("1");
+        let meta = self.get_metadata(old_password).await?; // error should not happen
+        println!("2");
+        self.create_metadata(password, Some(&meta)).await?;
+        println!("3");
+        Ok(())
+    }
+
     pub async fn create_metadata(
         &self,
         password: &[u8],
@@ -294,6 +303,15 @@ impl S3Client {
             .await?;
 
         Ok(dummy_data)
+    }
+
+    pub async fn meta_file_exists(&self) -> bool{
+        let meta = self.get_file(CRABDROP_METADATA_FILE_NAME).await;
+
+        match meta {
+            Some(_) => true,
+            None => false,
+        }
     }
 
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
