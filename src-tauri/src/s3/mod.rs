@@ -264,11 +264,8 @@ impl S3Client {
     }
 
     pub async fn re_encrypt_metadata(&self, password: &[u8], old_password: &[u8]) -> anyhow::Result<()> {
-        println!("1");
         let meta = self.get_metadata(old_password).await?; // error should not happen
-        println!("2");
         self.create_metadata(password, Some(&meta)).await?;
-        println!("3");
         Ok(())
     }
 
