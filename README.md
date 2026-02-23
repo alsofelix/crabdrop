@@ -2,6 +2,8 @@
 
 A simple, fast file manager for S3-compatible storage.
 
+📖 [Documentation](https://crabdrop.uk)
+
 ![crabdrop screenshot](screenshots/main-app-screenshot.png)
 
 ## Features
