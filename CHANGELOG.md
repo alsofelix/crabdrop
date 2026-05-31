@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.0 (2026-05-31)
+
+- Fixes a config flow issue
+
 ## v0.3.5 (2026-02-19)
 
 - Improves how handling of metadata works for crabdrop, changing encryption passphrase will no longer return aead::Error

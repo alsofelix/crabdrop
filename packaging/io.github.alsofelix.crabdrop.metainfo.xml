@@ -50,6 +50,13 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.0" date="2026-05-31">
+      <description>
+        <ul>
+          <li>Fixes a config flow issue</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.5" date="2026-02-19">
       <description>
         <ul>
