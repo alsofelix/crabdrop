@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.2 (2026-05-31)
+
+- Fix a compilation issue
+
 ## v0.5.1 (2026-05-31)
 
 - Fix an issue with tauri versions
