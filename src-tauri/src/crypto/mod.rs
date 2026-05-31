@@ -45,7 +45,7 @@ pub fn decrypt(data: &mut Vec<u8>, password: &[u8], salt: &[u8]) -> anyhow::Resu
         buf.drain(..24);
 
         let nonce = XNonce::from_slice(&nonce_bytes);
-        let cipher = XChaCha20Poly1305::new_from_slice(&key)?;
+        let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| anyhow!("{e}"))?;
         cipher
             .decrypt_in_place(nonce, b"", &mut buf)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -59,7 +59,7 @@ pub fn decrypt_chunk(data: &mut Vec<u8>, key: &[u8]) -> anyhow::Result<()> {
     let nonce_bytes: [u8; 24] = data[..24].try_into()?;
     let nonce = XNonce::from_slice(&nonce_bytes);
     data.drain(..24);
-    let cipher = XChaCha20Poly1305::new_from_slice(&key)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| anyhow!("{e}"))?;
     cipher
         .decrypt_in_place(nonce, b"", data)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
