@@ -26,7 +26,7 @@ aws-sdk-s3 = "1.120.0"
 tokio = { version = "1.49.0", features = ["full"] }
 dirs = "6.0.0"
 toml = "1.0.1"
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 walkdir = "2.5.0"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 argon2 = "0.5.3"
