@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.3 (2026-05-31)
+
+- Fix release issue
+
 ## v0.5.2 (2026-05-31)
 
 - Fix a compilation issue
