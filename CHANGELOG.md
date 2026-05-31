@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.1 (2026-05-31)
+
+- Fix an issue with tauri versions
+
 ## v0.5.0 (2026-05-31)
 
 - Fixes a config flow issue
