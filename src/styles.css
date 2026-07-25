@@ -125,13 +125,13 @@ body {
 }
 
 .error {
-    background: rgba(255, 100, 100, 0.1);
-    border: 1px solid #ff6464;
     color: #ff6464;
-    padding: 12px;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    font-size: 0.9em;
+    margin-top: 12px;
+    font-size: 0.8em;
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: center;
+    word-break: break-word;
 }
 
 #btn-connect {
@@ -264,11 +264,16 @@ header h1 {
     border-color: #ff6b35;
 }
 
-.file-list {
+.explorer-panel {
     background: #2a2a2a;
     border-radius: 6px;
+}
+
+.file-list {
+    background: transparent;
+    border-radius: 0;
     min-height: 300px;
-    margin-bottom: 15px;
+    margin-bottom: 0;
 }
 
 .file-list:focus-visible {
@@ -324,9 +329,10 @@ header h1 {
 }
 
 .file-item .size {
-    flex-shrink: 0;
+    flex: 0 0 5.5em;
     color: #888;
     font-size: 0.9em;
+    text-align: right;
     white-space: nowrap;
 }
 
@@ -427,16 +433,31 @@ header h1 {
 }
 
 #delete-confirm-message {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    display: flex;
     align-items: baseline;
 }
 
+.delete-confirm-prefix,
+.delete-confirm-suffix {
+    flex: 0 0 auto;
+}
+
 .delete-confirm-filename {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.delete-confirm-filename.is-truncated + .delete-confirm-suffix {
+    margin-left: -0.4em;
+}
+
+.delete-confirm-warning {
+    color: #ffb347;
+    line-height: 1.45;
+    margin: 16px 0 0;
 }
 
 .credential-removal-content {
@@ -960,8 +981,11 @@ header h1 {
 
 .file-item .lock-icon,
 .file-item .likely-encrypted-icon {
-    flex-shrink: 0;
-    margin-right: 22px;
+    display: inline-flex;
+    flex: 0 0 1.2rem;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
 }
 
 .file-item .lock-icon {
@@ -971,9 +995,6 @@ header h1 {
 
 .file-item .likely-encrypted-icon {
     position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     color: #ffb347;
     font-size: 0.9em;
     cursor: help;
@@ -1026,60 +1047,60 @@ header h1 {
     color: #ff6b35;
 }
 
-/* Alert / Toast */
-.alert-container {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 2000;
+/* Plain status text */
+.status-message-container {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    align-items: center;
+    gap: 4px;
     pointer-events: none;
 }
 
-.alert {
-    pointer-events: auto;
-    padding: 12px 16px;
-    border-radius: 8px;
-    font-size: 0.9em;
-    color: #fff;
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    animation: alert-in 0.25s ease-out;
-    max-width: 340px;
+.browser-status-message-container {
+    margin-top: 10px;
+    padding: 0 15px 16px;
+}
+
+.browser-status-message-container:empty {
+    display: none;
+}
+
+.global-status-message-container {
+    position: fixed;
+    bottom: 4px;
+    left: 16px;
+    right: 16px;
+    z-index: 2000;
+}
+
+.status-message {
+    font-size: 0.8em;
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: center;
+    animation: status-message-in 0.15s ease-out;
+    max-width: min(900px, calc(100vw - 32px));
     word-break: break-word;
 }
 
-.alert.alert-success {
-    border-color: #4caf50;
-    background: rgba(76, 175, 80, 0.15);
-    color: #6fcf73;
-}
-
-.alert.alert-error {
-    border-color: #ff6464;
-    background: rgba(255, 100, 100, 0.15);
+.status-message-error {
     color: #ff6464;
 }
 
-.alert.alert-warning {
-    border-color: #ff6b35;
-    background: rgba(255, 107, 53, 0.15);
+.status-message-warning {
     color: #ff6b35;
 }
 
-.alert.alert-out {
-    animation: alert-out 0.2s ease-in forwards;
+.status-message-out {
+    animation: status-message-out 0.15s ease-in forwards;
 }
 
-@keyframes alert-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
+@keyframes status-message-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
 
-@keyframes alert-out {
-    from { opacity: 1; transform: translateX(0); }
-    to   { opacity: 0; transform: translateX(20px); }
+@keyframes status-message-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
 }

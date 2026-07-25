@@ -80,37 +80,9 @@ pub async fn save_config(
 
     let client = S3Client::new(&config_curr).map_err(|e| e.to_string())?;
 
-    if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
-        if config_curr.credentials.should_re_encrypt_metadata(&x) {
-            if client
-                .meta_file_exists()
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                client
-                    .re_encrypt_metadata(
-                        x.as_bytes(),
-                        config_curr.credentials.encryption_passphrase.as_bytes(),
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-        } else if config_curr
-            .credentials
-            .encryption_passphrase
-            .is_empty()
-        {
-            run_quick_operation("Checking encryption passphrase", async {
-                if client.meta_file_exists().await? {
-                    client.get_metadata(x.as_bytes()).await?;
-                }
-                Ok(())
-            })
-            .await?;
-        }
-
-        config_curr.credentials.encryption_passphrase = x;
-    }
+    config_curr
+        .credentials
+        .update_encryption_passphrase(encryption_passphrase);
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
     *guard = Some(client);
@@ -154,6 +126,26 @@ pub async fn upload_folder(
 
     run_quick_operation("Creating folder", client.upload_folder(key)).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn validate_encrypted_upload(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+) -> Result<(), String> {
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
+    let config = Config::load().map_err(|e| e.to_string())?;
+    let password = config
+        .credentials
+        .encryption_passphrase_for_upload()
+        .map_err(|e| e.to_string())?;
+
+    client
+        .validate_encryption_passphrase(password)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -203,6 +195,13 @@ pub async fn upload_path(
                 .encryption_passphrase_for_upload()
                 .map_err(|e| e.to_string())?,
         );
+    }
+
+    if let Some(password) = password {
+        client
+            .validate_encryption_passphrase(password)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
@@ -303,10 +302,7 @@ pub async fn download_file(
             .get_metadata(config.credentials.encryption_passphrase.as_bytes())
             .await
             .map_err(|e| e.to_string())?;
-        let encrypted_filename = key
-            .rsplit_once("/")
-            .map(|(_, right)| right)
-            .unwrap_or(key);
+        let encrypted_filename = key.rsplit_once("/").map(|(_, right)| right).unwrap_or(key);
         let resolved_filename =
             metadata::get_filename(&metadata, encrypted_filename).map_err(|e| e.to_string())?;
         let encryption_key = derive_key(
@@ -444,7 +440,24 @@ pub async fn delete_file(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
     is_folder: bool,
+    allow_metadata_delete: Option<bool>,
 ) -> Result<(), String> {
+    let is_metadata = types::is_crabdrop_metadata_key(key);
+    if is_metadata && allow_metadata_delete != Some(true) {
+        return Err("Deleting Crabdrop metadata requires explicit confirmation.".to_string());
+    }
+    if is_metadata && is_folder {
+        return Err("Crabdrop metadata must be deleted as a single file.".to_string());
+    }
+
+    if is_metadata {
+        let mut guard = state.lock().await;
+        let client = guard.as_ref().ok_or("Not configured")?;
+        client.delete_metadata().await.map_err(|e| e.to_string())?;
+        *guard = None;
+        return Ok(());
+    }
+
     let client = {
         let guard = state.lock().await;
         guard.as_ref().ok_or("Not configured")?.clone()

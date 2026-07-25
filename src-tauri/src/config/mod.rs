@@ -46,8 +46,10 @@ impl CredentialsConfig {
         self.encryption_passphrase.clear();
     }
 
-    pub fn should_re_encrypt_metadata(&self, new_passphrase: &str) -> bool {
-        !self.encryption_passphrase.is_empty() && self.encryption_passphrase != new_passphrase
+    pub fn update_encryption_passphrase(&mut self, passphrase: Option<String>) {
+        if let Some(passphrase) = passphrase.filter(|value| !value.trim().is_empty()) {
+            self.encryption_passphrase = passphrase;
+        }
     }
 
     pub fn encryption_passphrase_for_upload(&self) -> anyhow::Result<&[u8]> {
@@ -218,11 +220,22 @@ mod tests {
     }
 
     #[test]
-    fn restoring_a_removed_passphrase_does_not_rotate_metadata() {
+    fn replacing_a_passphrase_only_updates_the_local_credential() {
         let mut credentials = example_credentials();
-        credentials.clear_encryption_passphrase();
 
-        assert!(!credentials.should_re_encrypt_metadata("example-passphrase"));
+        credentials.update_encryption_passphrase(Some("replacement-passphrase".to_string()));
+
+        assert_eq!(credentials.encryption_passphrase, "replacement-passphrase");
+    }
+
+    #[test]
+    fn a_blank_passphrase_keeps_the_saved_credential() {
+        let mut credentials = example_credentials();
+
+        credentials.update_encryption_passphrase(None);
+        credentials.update_encryption_passphrase(Some("   ".to_string()));
+
+        assert_eq!(credentials.encryption_passphrase, "example-passphrase");
     }
 
     #[test]

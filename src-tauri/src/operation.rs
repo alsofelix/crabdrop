@@ -11,11 +11,7 @@ where
     run_with_timeout(name, QUICK_OPERATION_TIMEOUT, operation).await
 }
 
-async fn run_with_timeout<T, F>(
-    name: &str,
-    duration: Duration,
-    operation: F,
-) -> Result<T, String>
+async fn run_with_timeout<T, F>(name: &str, duration: Duration, operation: F) -> Result<T, String>
 where
     F: Future<Output = anyhow::Result<T>>,
 {
@@ -44,11 +40,7 @@ fn format_duration(duration: Duration) -> String {
     }
 }
 
-pub fn friendly_service_error(
-    action: &str,
-    code: Option<&str>,
-    message: Option<&str>,
-) -> String {
+pub fn friendly_service_error(action: &str, code: Option<&str>, message: Option<&str>) -> String {
     let action = action.to_lowercase();
     match code {
         Some("NoSuchBucket") => format!(
@@ -109,14 +101,10 @@ mod tests {
 
     #[tokio::test]
     async fn quick_operations_return_a_specific_timeout_error() {
-        let result = run_with_timeout(
-            "Connection check",
-            Duration::from_millis(1),
-            async {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                Ok::<_, anyhow::Error>(())
-            },
-        )
+        let result = run_with_timeout("Connection check", Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok::<_, anyhow::Error>(())
+        })
         .await;
 
         assert_eq!(

@@ -94,11 +94,11 @@
                 <span class="hint">Optional. Without a passphrase, uploads can only be unencrypted.</span>
             </div>
 
-            <div id="setup-error" class="error hidden"></div>
-
             <button type="submit" id="btn-connect">
                 Connect
             </button>
+
+            <div id="setup-error" class="error hidden"></div>
         </form>
     </div>
 </main>
@@ -157,12 +157,19 @@
         </div>
     </div>
 
-    <div
-            id="file-list"
-            class="file-list"
-            tabindex="0"
-            aria-label="Files. Press Shift+F10 for folder actions."
-    ></div>
+    <div class="explorer-panel">
+        <div
+                id="file-list"
+                class="file-list"
+                tabindex="0"
+                aria-label="Files. Press Shift+F10 for folder actions."
+        ></div>
+
+        <div
+                id="browser-status-message-container"
+                class="status-message-container browser-status-message-container"
+        ></div>
+    </div>
 
 </main>
 
@@ -173,7 +180,12 @@
     </div>
 </div>
 
-<div id="encrypt-confirm-modal" class="modal hidden">
+<div
+        id="encrypt-confirm-modal"
+        class="modal hidden"
+        data-modal-primary="encrypt-confirm-upload"
+        data-modal-cancel="encrypt-confirm-cancel"
+>
     <div class="modal-content">
         <h3>Upload Files</h3>
         <p id="encrypt-confirm-count"></p>
@@ -190,7 +202,12 @@
     </div>
 </div>
 
-<div id="folder-modal" class="modal hidden">
+<div
+        id="folder-modal"
+        class="modal hidden"
+        data-modal-primary="folder-create"
+        data-modal-cancel="folder-cancel"
+>
     <div class="modal-content">
         <h3>New Folder</h3>
         <label for="folder-name"></label><input type="text" id="folder-name" placeholder="Folder name"/>
@@ -256,6 +273,8 @@
         aria-modal="true"
         aria-labelledby="encrypted-copy-download-title"
         aria-describedby="encrypted-copy-download-message"
+        data-modal-primary="encrypted-copy-download-confirm"
+        data-modal-cancel="encrypted-copy-download-cancel"
 >
     <div class="modal-content encrypted-copy-download-content">
         <h3 id="encrypted-copy-download-title">Download Encrypted Copy?</h3>
@@ -274,6 +293,8 @@
         aria-modal="true"
         aria-labelledby="download-all-title"
         aria-describedby="download-all-message"
+        data-modal-primary="download-all-confirm"
+        data-modal-cancel="download-all-cancel"
 >
     <div class="modal-content download-all-content">
         <h3 id="download-all-title">Download All Files?</h3>
@@ -285,10 +306,20 @@
         </div>
     </div>
 </div>
-<div id="delete-confirm-modal" class="modal hidden">
+<div
+        id="delete-confirm-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+        aria-describedby="delete-confirm-message delete-confirm-warning"
+        data-modal-primary="delete-confirm-ok"
+        data-modal-cancel="delete-confirm-cancel"
+>
     <div class="modal-content">
-        <h3>Delete</h3>
+        <h3 id="delete-confirm-title">Delete</h3>
         <p id="delete-confirm-message"></p>
+        <p id="delete-confirm-warning" class="delete-confirm-warning hidden"></p>
         <div class="modal-buttons">
             <button id="delete-confirm-cancel">Cancel</button>
             <button id="delete-confirm-ok" class="btn-danger">Delete</button>
@@ -302,6 +333,8 @@
         role="dialog"
         aria-modal="true"
         aria-labelledby="credential-removal-title"
+        data-modal-primary="credential-removal-confirm"
+        data-modal-cancel="credential-removal-cancel"
 >
     <div class="modal-content credential-removal-content">
         <h3 id="credential-removal-title"></h3>
@@ -322,7 +355,12 @@
     <button id="ctx-download-all" role="menuitem">⬇️ Download All Files</button>
 </div>
 
-<div id="share-modal" class="modal hidden">
+<div
+        id="share-modal"
+        class="modal hidden"
+        data-modal-primary="share-generate"
+        data-modal-cancel="share-cancel"
+>
     <div class="modal-content share-modal-content">
         <h3>Share File</h3>
         <p id="share-filename" class="share-filename"></p>
@@ -342,14 +380,17 @@
             <button id="share-copy">Copy</button>
         </div>
 
-        <div id="share-error" class="error hidden"></div>
-
         <div class="modal-buttons">
             <button id="share-cancel">Cancel</button>
             <button id="share-generate">Generate Link</button>
         </div>
+
+        <div id="share-error" class="error hidden"></div>
     </div>
 </div>
-<div id="alert-container" class="alert-container"></div>
+<div
+        id="global-status-message-container"
+        class="status-message-container global-status-message-container"
+></div>
 </body>
 </html>

@@ -29,6 +29,7 @@ pub fn run() {
             commands::test_connection,
             commands::get_config,
             commands::upload_folder,
+            commands::validate_encrypted_upload,
             commands::upload_path,
             commands::download_file,
             commands::delete_file,

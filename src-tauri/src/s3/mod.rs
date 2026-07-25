@@ -1,8 +1,10 @@
 use crate::config::Config;
 use crate::crypto::{decrypt, encrypt};
-use crate::metadata;
+use crate::metadata::{self, CRABDROP_METADATA_FILE_NAME};
 use crate::operation::friendly_sdk_error;
-use crate::types::{is_likely_encrypted_name, File};
+use crate::types::{
+    is_crabdrop_metadata_key, is_folder_marker_key, is_likely_encrypted_name, File,
+};
 use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
@@ -13,7 +15,10 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{Mutex, Semaphore};
@@ -24,13 +29,12 @@ const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
 const CHUNKS_AT_A_TIME: usize = 6;
 
-const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
-
 #[derive(Clone)]
 pub struct S3Client {
     client: Client,
     bucket_name: String,
     meta_lock: Arc<Mutex<()>>,
+    metadata_deleted: Arc<AtomicBool>,
 }
 
 impl S3Client {
@@ -42,6 +46,7 @@ impl S3Client {
             client,
             bucket_name: config.storage.bucket.clone(),
             meta_lock: Arc::new(Mutex::new(())),
+            metadata_deleted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -53,7 +58,6 @@ impl S3Client {
         let metadata = self
             .get_metadata_for_listing(config.credentials.encryption_passphrase.as_bytes())
             .await?;
-        let metadata_available = metadata.is_some();
 
         loop {
             let mut request = self
@@ -78,13 +82,22 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
+                if is_folder_marker_key(&key) {
+                    continue;
+                }
+
                 let raw_name = key.split("/").last().unwrap_or(&key).to_string();
-                let encrypted = match metadata.as_deref() {
-                    Some(metadata) => metadata::is_in_meta(metadata, &raw_name)?,
-                    None => false,
+                let is_metadata = is_crabdrop_metadata_key(&key);
+                let encrypted = if is_metadata {
+                    false
+                } else {
+                    match metadata.as_deref() {
+                        Some(metadata) => metadata::is_in_meta(metadata, &raw_name)?,
+                        None => false,
+                    }
                 };
                 let likely_encrypted =
-                    is_likely_encrypted_name(&raw_name, metadata_available);
+                    !is_metadata && is_likely_encrypted_name(&raw_name, encrypted);
                 let name = if encrypted {
                     let name_ = metadata::get_filename(
                         metadata
@@ -100,10 +113,6 @@ impl S3Client {
                     raw_name
                 };
 
-                if name == CRABDROP_METADATA_FILE_NAME {
-                    continue;
-                }
-
                 let f = File {
                     name,
                     key,
@@ -112,6 +121,7 @@ impl S3Client {
                     last_modified: file.last_modified().map(|d| d.secs()),
                     encrypted,
                     likely_encrypted,
+                    is_metadata,
                 };
                 vector.push(f)
             }
@@ -146,6 +156,7 @@ impl S3Client {
                     last_modified: None,
                     encrypted,
                     likely_encrypted: false,
+                    is_metadata: false,
                 };
 
                 vector.push(f);
@@ -281,14 +292,33 @@ impl S3Client {
 
                 Ok(metadata)
             }
+            None => Err(anyhow!(
+                "Encryption metadata is missing. Restore a metadata backup before downloading encrypted files."
+            )),
+        }
+    }
+
+    async fn get_or_create_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
+            Some(mut metadata) => {
+                decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )?;
+
+                Ok(metadata)
+            }
             None => self.create_metadata(password, None).await,
         }
     }
 
-    async fn get_metadata_for_listing(
-        &self,
-        password: &[u8],
-    ) -> anyhow::Result<Option<Vec<u8>>> {
+    pub async fn validate_encryption_passphrase(&self, password: &[u8]) -> anyhow::Result<()> {
+        let encrypted_metadata = self.get_file(CRABDROP_METADATA_FILE_NAME).await?;
+        metadata::validate_encryption_passphrase(encrypted_metadata.as_deref(), password)
+    }
+
+    async fn get_metadata_for_listing(&self, password: &[u8]) -> anyhow::Result<Option<Vec<u8>>> {
         if password.is_empty() {
             return Ok(None);
         }
@@ -307,18 +337,8 @@ impl S3Client {
 
                 Ok(Some(metadata))
             }
-            None => self.create_metadata(password, None).await.map(Some),
+            None => Ok(None),
         }
-    }
-
-    pub async fn re_encrypt_metadata(
-        &self,
-        password: &[u8],
-        old_password: &[u8],
-    ) -> anyhow::Result<()> {
-        let meta = self.get_metadata(old_password).await?; // error should not happen
-        self.create_metadata(password, Some(&meta)).await?;
-        Ok(())
     }
 
     pub async fn create_metadata(
@@ -355,17 +375,25 @@ impl S3Client {
         Ok(dummy_data)
     }
 
-    pub async fn meta_file_exists(&self) -> anyhow::Result<bool> {
-        Ok(self.get_file(CRABDROP_METADATA_FILE_NAME).await?.is_some())
-    }
-
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
         let _guard = self.meta_lock.lock().await;
-        let metadata = self.get_metadata(password).await?;
+        if self.metadata_deleted.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Connection closed because the Crabdrop metadata file was deleted."
+            ));
+        }
+        let metadata = self.get_or_create_metadata(password).await?;
 
         let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
 
         self.create_metadata(password, Some(&new_data)).await?;
+        Ok(())
+    }
+
+    pub async fn delete_metadata(&self) -> anyhow::Result<()> {
+        let _guard = self.meta_lock.lock().await;
+        self.delete_file(CRABDROP_METADATA_FILE_NAME).await?;
+        self.metadata_deleted.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -422,15 +450,9 @@ impl S3Client {
                 request = request.continuation_token(token);
             }
 
-            let response = request
-                .send()
-                .await
-                .map_err(|error| {
-                    anyhow!(friendly_sdk_error(
-                        "listing a folder for deletion",
-                        &error
-                    ))
-                })?;
+            let response = request.send().await.map_err(|error| {
+                anyhow!(friendly_sdk_error("listing a folder for deletion", &error))
+            })?;
 
             let keys: Vec<String> = response
                 .contents()
@@ -645,10 +667,7 @@ impl S3Client {
                     );
                 }
                 Err(e) => {
-                    upload_error = Some(anyhow!(friendly_sdk_error(
-                        "uploading a file part",
-                        &e
-                    )));
+                    upload_error = Some(anyhow!(friendly_sdk_error("uploading a file part", &e)));
                     break;
                 }
             }
