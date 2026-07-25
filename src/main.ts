@@ -1,9 +1,19 @@
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 import {
+    type AppScreen,
+    type CredentialRemovalKind,
     determineStartupDestination,
     formatBucketPath,
+    getCredentialRemovalPrompt,
+    getPassphraseFieldState,
+    getSecretKeyFieldState,
     getEndpointWarning,
+    getLikelyEncryptedDownloadPrompt,
+    getSearchQueryAfterScreenChange,
+    requiresEncryptedCopyConfirmation,
+    runDownloadWithFailureCleanup,
+    runRefreshWithFeedback,
 } from "./ui_logic";
 
 type AlertType = "success" | "error" | "warning";
@@ -66,7 +76,10 @@ interface File {
     isFolder: boolean;
     lastModified: number | null;
     encrypted: boolean;
+    likelyEncrypted: boolean;
 }
+
+let pendingEncryptedCopyDownload: File | null = null;
 
 interface StorageConfig {
     endpoint: string;
@@ -122,9 +135,9 @@ function applyFilters(): void {
     }
 
     if (activeFilters.encryption === "encrypted") {
-        filtered = filtered.filter(f => f.encrypted);
+        filtered = filtered.filter(f => f.encrypted || f.likelyEncrypted);
     } else if (activeFilters.encryption === "unencrypted") {
-        filtered = filtered.filter(f => !f.encrypted);
+        filtered = filtered.filter(f => !f.encrypted && !f.likelyEncrypted);
     }
 
     if (activeFilters.size !== "all") {
@@ -166,7 +179,7 @@ function applyFilters(): void {
     renderFiles([...folders, ...files]);
 }
 
-async function loadFiles(prefix: string): Promise<void> {
+async function loadFiles(prefix: string): Promise<boolean> {
     try {
         const files = await invoke<File[]>("list_files", {prefix});
         const isNewPath = prefix !== currentPath;
@@ -189,9 +202,11 @@ async function loadFiles(prefix: string): Promise<void> {
         }
 
         applyFilters();
+        return true;
     } catch (e) {
         console.error("Failed to load files:", e);
         showAlert(String(e), "error", 8000);
+        return false;
     }
 }
 
@@ -218,6 +233,8 @@ async function init() {
     setupDownloadEvents();
     setupContextMenu();
     setupShareModal();
+    setupCredentialRemovalModal();
+    setupEncryptedCopyDownloadModal();
     setupKeyboardShortcuts();
 
     const isConfigured = await invoke<boolean>("check_config");
@@ -239,18 +256,69 @@ async function init() {
     }
 }
 
-async function downloadFile(file: File): Promise<void> {
+async function downloadFile(file: File, allowEncryptedCopy = false): Promise<void> {
     if (downloadState.active) return;
+    if (requiresEncryptedCopyConfirmation(file.likelyEncrypted, allowEncryptedCopy)) {
+        showEncryptedCopyDownloadPrompt(file);
+        return;
+    }
+
     try {
-        await invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted});
+        await runDownloadWithFailureCleanup(
+            () => invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted}),
+            resetDownloadProgress,
+        );
     } catch (e) {
         console.error("Download failed:", e);
-        downloadState.active = false;
         const msg = String(e).toLowerCase().includes("aead")
             ? "Encryption passphrase does not match"
             : String(e);
         showAlert(msg, "error");
     }
+}
+
+function showEncryptedCopyDownloadPrompt(file: File): void {
+    const prompt = getLikelyEncryptedDownloadPrompt();
+    const modal = document.getElementById("encrypted-copy-download-modal")!;
+    const filename = document.getElementById("encrypted-copy-download-filename")!;
+
+    pendingEncryptedCopyDownload = file;
+    document.getElementById("encrypted-copy-download-title")!.textContent = prompt.title;
+    document.getElementById("encrypted-copy-download-message")!.textContent = prompt.message;
+    const confirmButton = document.getElementById("encrypted-copy-download-confirm") as HTMLButtonElement;
+    confirmButton.textContent = prompt.confirmLabel;
+    filename.textContent = file.name;
+    filename.title = file.name;
+    modal.classList.remove("hidden");
+    (document.getElementById("encrypted-copy-download-cancel") as HTMLButtonElement).focus();
+}
+
+function hideEncryptedCopyDownloadPrompt(): void {
+    pendingEncryptedCopyDownload = null;
+    document.getElementById("encrypted-copy-download-modal")!.classList.add("hidden");
+}
+
+async function confirmEncryptedCopyDownload(): Promise<void> {
+    const file = pendingEncryptedCopyDownload;
+    if (!file) return;
+
+    hideEncryptedCopyDownloadPrompt();
+    await downloadFile(file, true);
+}
+
+function setupEncryptedCopyDownloadModal(): void {
+    const modal = document.getElementById("encrypted-copy-download-modal")!;
+    document
+        .getElementById("encrypted-copy-download-cancel")
+        ?.addEventListener("click", hideEncryptedCopyDownloadPrompt);
+    document
+        .getElementById("encrypted-copy-download-confirm")
+        ?.addEventListener("click", confirmEncryptedCopyDownload);
+    modal.addEventListener("click", event => {
+        if (event.target === modal) {
+            hideEncryptedCopyDownloadPrompt();
+        }
+    });
 }
 
 async function deleteFile(file: File): Promise<void> {
@@ -269,9 +337,21 @@ function confirmDelete(file: File): void {
     const cancelBtn = document.getElementById("delete-confirm-cancel")!;
     const okBtn = document.getElementById("delete-confirm-ok")!;
 
-    message.textContent = file.isFolder
-        ? `Delete folder "${file.name}" and all its contents?`
-        : `Delete "${file.name}"?`;
+    message.innerHTML = "";
+    const prefix = document.createElement("span");
+    prefix.className = "delete-confirm-prefix";
+    prefix.textContent = file.isFolder ? "Delete folder \"" : "Delete \"";
+
+    const filename = document.createElement("span");
+    filename.className = "delete-confirm-filename";
+    filename.textContent = file.name;
+    filename.title = file.name;
+
+    const suffix = document.createElement("span");
+    suffix.className = "delete-confirm-suffix";
+    suffix.textContent = file.isFolder ? "\" and all its contents?" : "\"?";
+
+    message.append(prefix, filename, suffix);
 
     modal.classList.remove("hidden");
 
@@ -353,34 +433,72 @@ function updateEndpointWarning(): string | null {
     return warning;
 }
 
-async function clearSavedSecretAccessKey(): Promise<void> {
-    const confirmed = window.confirm(
-        "Remove the saved Secret Access Key from Keychain? You will need to enter it again before reconnecting.",
-    );
-    if (!confirmed) return;
+let pendingCredentialRemoval: CredentialRemovalKind | null = null;
 
+function showCredentialRemovalPrompt(kind: CredentialRemovalKind): void {
+    const prompt = getCredentialRemovalPrompt(kind);
+    const modal = document.getElementById("credential-removal-modal")!;
+    document.getElementById("credential-removal-title")!.textContent = prompt.title;
+    document.getElementById("credential-removal-message")!.textContent = prompt.message;
+    pendingCredentialRemoval = kind;
+    modal.classList.remove("hidden");
+    (document.getElementById("credential-removal-cancel") as HTMLButtonElement).focus();
+}
+
+function hideCredentialRemovalPrompt(): void {
+    pendingCredentialRemoval = null;
+    document.getElementById("credential-removal-modal")!.classList.add("hidden");
+}
+
+async function confirmCredentialRemoval(): Promise<void> {
+    const kind = pendingCredentialRemoval;
+    if (!kind) return;
+
+    const confirmButton = document.getElementById("credential-removal-confirm") as HTMLButtonElement;
+    const prompt = getCredentialRemovalPrompt(kind);
     try {
-        await invoke("clear_saved_secret_access_key");
-        await loadConfig();
-        showAlert("Saved Secret Access Key removed from Keychain.", "success");
+        confirmButton.disabled = true;
+        confirmButton.textContent = "Removing...";
+
+        if (kind === "secret-key") {
+            await invoke("clear_saved_secret_access_key");
+            applyCredentialFieldState(
+                "secret-key",
+                "clear-secret-key",
+                getSecretKeyFieldState(false),
+            );
+        } else {
+            await invoke("clear_saved_encryption_passphrase");
+            applyCredentialFieldState(
+                "encryption-passphrase",
+                "clear-encryption-passphrase",
+                getPassphraseFieldState(false),
+            );
+        }
+
+        hideCredentialRemovalPrompt();
+        showAlert(prompt.successMessage, "success");
     } catch (error) {
         showAlert(String(error), "error", 8000);
+    } finally {
+        confirmButton.disabled = false;
+        confirmButton.textContent = "Remove";
     }
 }
 
-async function clearSavedEncryptionPassphrase(): Promise<void> {
-    const confirmed = window.confirm(
-        "Remove the saved Encryption Passphrase from Keychain? Existing encrypted filenames and files still require it, and crabdrop cannot recover it.",
-    );
-    if (!confirmed) return;
-
-    try {
-        await invoke("clear_saved_encryption_passphrase");
-        await loadConfig();
-        showAlert("Saved Encryption Passphrase removed from Keychain.", "success");
-    } catch (error) {
-        showAlert(String(error), "error", 8000);
-    }
+function setupCredentialRemovalModal(): void {
+    const modal = document.getElementById("credential-removal-modal")!;
+    document
+        .getElementById("credential-removal-cancel")
+        ?.addEventListener("click", hideCredentialRemovalPrompt);
+    document
+        .getElementById("credential-removal-confirm")
+        ?.addEventListener("click", confirmCredentialRemoval);
+    modal.addEventListener("click", event => {
+        if (event.target === modal) {
+            hideCredentialRemovalPrompt();
+        }
+    });
 }
 
 function setUpConnScreen() {
@@ -390,14 +508,18 @@ function setUpConnScreen() {
     });
 
     document.getElementById("endpoint")?.addEventListener("input", updateEndpointWarning);
-    document.getElementById("clear-secret-key")?.addEventListener("click", clearSavedSecretAccessKey);
+    document
+        .getElementById("clear-secret-key")
+        ?.addEventListener("click", () => showCredentialRemovalPrompt("secret-key"));
     document.getElementById("clear-encryption-passphrase")?.addEventListener(
         "click",
-        clearSavedEncryptionPassphrase,
+        () => showCredentialRemovalPrompt("passphrase"),
     );
 }
 
-function showScreen(screen: "setup" | "browser") {
+function showScreen(screen: AppScreen) {
+    const searchInput = document.getElementById("search-input") as HTMLInputElement;
+    searchInput.value = getSearchQueryAfterScreenChange(screen, searchInput.value);
     document.getElementById("setup-screen")!.classList.toggle("hidden", screen !== "setup");
     document.getElementById("browser-screen")!.classList.toggle("hidden", screen !== "browser");
 }
@@ -446,7 +568,9 @@ function createUploadItem(id: string, state: UploadState): HTMLElement {
     }
 
     root.querySelector(".upload-icon")!.textContent = state.isFolder ? "📁" : "📄";
-    root.querySelector(".upload-name")!.textContent = state.filename;
+    const uploadName = root.querySelector(".upload-name") as HTMLElement;
+    uploadName.textContent = state.filename;
+    uploadName.title = state.filename;
     root.querySelector(".upload-percent")!.textContent = state.percent < 0 ? "" : `${state.percent}%`;
 
     const details = root.querySelector(".upload-details")!;
@@ -482,7 +606,9 @@ function updateUploadItem(root: HTMLElement, state: UploadState): void {
     }
 
     root.querySelector(".upload-icon")!.textContent = state.isFolder ? "📁" : "📄";
-    root.querySelector(".upload-name")!.textContent = state.filename;
+    const uploadName = root.querySelector(".upload-name") as HTMLElement;
+    uploadName.textContent = state.filename;
+    uploadName.title = state.filename;
     root.querySelector(".upload-percent")!.textContent = state.percent < 0 ? "" : `${state.percent}%`;
 
     const details = root.querySelector(".upload-details")!;
@@ -507,6 +633,17 @@ function showDownloadOverlay() {
 
 function hideDownloadOverlay() {
     document.getElementById("download-overlay")!.classList.add("hidden");
+}
+
+function resetDownloadProgress(): void {
+    hideDownloadOverlay();
+    downloadState = {
+        active: false,
+        filename: "",
+        percent: -1,
+        downloadedBytes: 0,
+        totalBytes: 0,
+    };
 }
 
 function getOrCreateUploadState(uploadId: string): UploadState {
@@ -536,6 +673,7 @@ function updateDownloadUI() {
     const sizeEl = document.getElementById("download-size-info")!;
 
     nameEl.textContent = downloadState.filename;
+    nameEl.title = downloadState.filename;
 
     if (downloadState.percent < 0) {
         fillEl.classList.add("indeterminate");
@@ -637,8 +775,7 @@ function setupUploadEvents() {
 
 function setupDownloadEvents() {
     document.getElementById("download-close")?.addEventListener("click", () => {
-        hideDownloadOverlay();
-        downloadState.active = false;
+        resetDownloadProgress();
     });
 
     listen("download_start", (event: any) => {
@@ -699,9 +836,7 @@ function setupDownloadEvents() {
         downloadState.percent = 100;
         updateDownloadUI();
         setTimeout(() => {
-            hideDownloadOverlay();
-            downloadState.active = false;
-            downloadState.percent = -1;
+            resetDownloadProgress();
         }, 1000);
     });
 }
@@ -814,6 +949,7 @@ function createFileItem(file: File, index: number): HTMLElement {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = file.name;
+    name.title = file.name;
 
     const size = document.createElement("span");
     size.className = "size";
@@ -827,6 +963,19 @@ function createFileItem(file: File, index: number): HTMLElement {
         lockIcon.className = "lock-icon";
         lockIcon.textContent = "\uD83D\uDD12";
         item.appendChild(lockIcon);
+    } else if (file.likelyEncrypted) {
+        const warningIcon = document.createElement("span");
+        warningIcon.className = "likely-encrypted-icon";
+        warningIcon.textContent = "⚠";
+        const tooltip = document.createElement("span");
+        tooltip.className = "likely-encrypted-tooltip";
+        tooltip.id = `likely-encrypted-tooltip-${index}`;
+        tooltip.setAttribute("role", "tooltip");
+        tooltip.textContent = "Likely encrypted. The current passphrase cannot decrypt this file.";
+        warningIcon.setAttribute("aria-describedby", tooltip.id);
+        warningIcon.tabIndex = 0;
+        warningIcon.appendChild(tooltip);
+        item.appendChild(warningIcon);
     }
 
     item.appendChild(size);
@@ -883,26 +1032,16 @@ async function loadConfig(connectionError: string | null = null): Promise<void> 
     (document.getElementById("region") as HTMLInputElement).value = config.storage.region;
     (document.getElementById("access-key") as HTMLInputElement).value = config.access_key_id;
 
-    const secretEl = document.getElementById("secret-key") as HTMLInputElement;
-    secretEl.required = !config.has_secret;
-    secretEl.value = "";
-    secretEl.placeholder = config.has_secret
-        ? "Saved in Keychain (leave blank to keep)"
-        : "Enter secret key";
-    document.getElementById("clear-secret-key")!.classList.toggle("hidden", !config.has_secret);
-
-    const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
-    encPassEl.value = "";
-    if (config.has_encryption_passphrase) {
-        encPassEl.placeholder = "Saved (leave blank to keep)";
-        encPassEl.required = false;
-    } else {
-        encPassEl.placeholder = "Encryption passphrase (make it safe)";
-        encPassEl.required = true;
-    }
-    document
-        .getElementById("clear-encryption-passphrase")!
-        .classList.toggle("hidden", !config.has_encryption_passphrase);
+    applyCredentialFieldState(
+        "secret-key",
+        "clear-secret-key",
+        getSecretKeyFieldState(config.has_secret),
+    );
+    applyCredentialFieldState(
+        "encryption-passphrase",
+        "clear-encryption-passphrase",
+        getPassphraseFieldState(config.has_encryption_passphrase),
+    );
 
     updateEndpointWarning();
 
@@ -911,6 +1050,18 @@ async function loadConfig(connectionError: string | null = null): Promise<void> 
     errorEl.classList.toggle("hidden", connectionError === null);
 
     showScreen("setup");
+}
+
+function applyCredentialFieldState(
+    inputId: string,
+    clearButtonId: string,
+    state: ReturnType<typeof getSecretKeyFieldState>,
+): void {
+    const input = document.getElementById(inputId) as HTMLInputElement;
+    input.value = "";
+    input.placeholder = state.placeholder;
+    input.required = state.required;
+    document.getElementById(clearButtonId)!.classList.toggle("hidden", !state.showClear);
 }
 
 function setUpSettingsButton(): void {
@@ -945,18 +1096,17 @@ function setupEncryptConfirmModal(): void {
     const uploadBtn = document.getElementById("encrypt-confirm-upload")!;
     const toggle = document.getElementById("encrypt-toggle") as HTMLInputElement;
 
-    uploadBtn.addEventListener("click", () => {
+    uploadBtn.addEventListener("click", async () => {
+        const hasPassphrase = await invoke<boolean>("has_encrypted_password");
+        if (toggle.checked && !hasPassphrase) {
+            showAlert("Set an encryption passphrase in Settings before enabling encryption.", "error", 5 * 1000);
+            await updateEncryptionAvailability();
+            return;
+        }
+
         modal.classList.add("hidden");
-        invoke("has_encrypted_password").then(value => {
-            if (toggle.checked && !value) {
-                showAlert("You must set an encryption passphrase for this, change in settings", "error", 5 * 1000);
-                return;
-            }
-            startUpload(toggle.checked);
-            toggle.checked = false;
-        });
-
-
+        await startUpload(toggle.checked);
+        toggle.checked = false;
     });
 
     cancelBtn.addEventListener("click", () => {
@@ -974,6 +1124,20 @@ function setupEncryptConfirmModal(): void {
     });
 }
 
+async function updateEncryptionAvailability(): Promise<void> {
+    const toggle = document.getElementById("encrypt-toggle") as HTMLInputElement;
+    const label = document.getElementById("encrypt-toggle-label")!;
+    const notice = document.getElementById("encrypt-unavailable")!;
+    const hasPassphrase = await invoke<boolean>("has_encrypted_password");
+
+    toggle.disabled = !hasPassphrase;
+    if (!hasPassphrase) {
+        toggle.checked = false;
+    }
+    label.classList.toggle("disabled", !hasPassphrase);
+    notice.classList.toggle("hidden", hasPassphrase);
+}
+
 async function startUpload(encrypted: boolean): Promise<void> {
     const paths = pendingDropPaths;
     pendingDropPaths = [];
@@ -989,7 +1153,7 @@ async function startUpload(encrypted: boolean): Promise<void> {
     await loadFiles(currentPath);
 }
 
-function handleFileDrop(paths: string[]): void {
+async function handleFileDrop(paths: string[]): Promise<void> {
     pendingDropPaths.push(...paths);
     const modal = document.getElementById("encrypt-confirm-modal")!;
     const countEl = document.getElementById("encrypt-confirm-count")!;
@@ -1003,10 +1167,13 @@ function handleFileDrop(paths: string[]): void {
     for (const path of pendingDropPaths) {
         const item = document.createElement("div");
         item.className = "encrypt-file-item";
-        item.textContent = getFilenameFromPath(path);
+        const filename = getFilenameFromPath(path);
+        item.textContent = filename;
+        item.title = filename;
         fileListEl.appendChild(item);
     }
 
+    await updateEncryptionAvailability();
     modal.classList.remove("hidden");
 }
 
@@ -1099,7 +1266,16 @@ function setupKeyboardShortcuts(): void {
 
 function setupEventListeners(): void {
     document.getElementById("btn-back")?.addEventListener("click", navigateUp);
-    document.getElementById("btn-refresh")?.addEventListener("click", () => loadFiles(currentPath));
+    document.getElementById("btn-refresh")?.addEventListener("click", async () => {
+        const button = document.getElementById("btn-refresh") as HTMLButtonElement;
+        await runRefreshWithFeedback(
+            () => loadFiles(currentPath),
+            state => {
+                button.textContent = state.label;
+                button.disabled = state.disabled;
+            },
+        );
+    });
 
     document.getElementById("search-input")?.addEventListener("input", () => {
         applyFilters();
@@ -1146,6 +1322,7 @@ function showShareModal(file: File): void {
     const generateBtn = document.getElementById("share-generate") as HTMLButtonElement;
 
     filenameEl.textContent = file.name;
+    filenameEl.title = file.name;
     urlContainer.classList.add("hidden");
     urlInput.value = "";
     errorEl.classList.add("hidden");

@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::crypto::{decrypt, encrypt};
 use crate::metadata;
 use crate::operation::friendly_sdk_error;
-use crate::types::File;
+use crate::types::{is_likely_encrypted_name, File};
 use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
@@ -51,8 +51,9 @@ impl S3Client {
 
         let config = Config::load()?;
         let metadata = self
-            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .get_metadata_for_listing(config.credentials.encryption_passphrase.as_bytes())
             .await?;
+        let metadata_available = metadata.is_some();
 
         loop {
             let mut request = self
@@ -78,9 +79,19 @@ impl S3Client {
                     .to_string();
 
                 let raw_name = key.split("/").last().unwrap_or(&key).to_string();
-                let encrypted = metadata::is_in_meta(&metadata, &raw_name)?;
+                let encrypted = match metadata.as_deref() {
+                    Some(metadata) => metadata::is_in_meta(metadata, &raw_name)?,
+                    None => false,
+                };
+                let likely_encrypted =
+                    is_likely_encrypted_name(&raw_name, metadata_available);
                 let name = if encrypted {
-                    let name_ = metadata::get_filename(&metadata, &raw_name);
+                    let name_ = metadata::get_filename(
+                        metadata
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("Encryption metadata is unavailable"))?,
+                        &raw_name,
+                    );
                     let raw_name =
                         name_.unwrap_or_else(|_| String::from("encryption-passphrase-wrong"));
 
@@ -100,6 +111,7 @@ impl S3Client {
                     is_folder: false,
                     last_modified: file.last_modified().map(|d| d.secs()),
                     encrypted,
+                    likely_encrypted,
                 };
                 vector.push(f)
             }
@@ -116,7 +128,10 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Error on parsing"))?
                     .to_string();
 
-                let encrypted = metadata::is_in_meta(&metadata, &encrypted_step)?;
+                let encrypted = match metadata.as_deref() {
+                    Some(metadata) => metadata::is_in_meta(metadata, &encrypted_step)?,
+                    None => false,
+                };
 
                 let f = File {
                     name: key
@@ -130,6 +145,7 @@ impl S3Client {
                     is_folder: true,
                     last_modified: None,
                     encrypted,
+                    likely_encrypted: false,
                 };
 
                 vector.push(f);
@@ -266,6 +282,32 @@ impl S3Client {
                 Ok(metadata)
             }
             None => self.create_metadata(password, None).await,
+        }
+    }
+
+    async fn get_metadata_for_listing(
+        &self,
+        password: &[u8],
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        if password.is_empty() {
+            return Ok(None);
+        }
+
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
+            Some(mut metadata) => {
+                if decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )
+                .is_err()
+                {
+                    return Ok(None);
+                }
+
+                Ok(Some(metadata))
+            }
+            None => self.create_metadata(password, None).await.map(Some),
         }
     }
 

@@ -49,6 +49,16 @@ impl CredentialsConfig {
     pub fn should_re_encrypt_metadata(&self, new_passphrase: &str) -> bool {
         !self.encryption_passphrase.is_empty() && self.encryption_passphrase != new_passphrase
     }
+
+    pub fn encryption_passphrase_for_upload(&self) -> anyhow::Result<&[u8]> {
+        if self.encryption_passphrase.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Set an encryption passphrase in Settings before uploading encrypted files."
+            ));
+        }
+
+        Ok(self.encryption_passphrase.as_bytes())
+    }
 }
 
 impl Config {
@@ -213,5 +223,19 @@ mod tests {
         credentials.clear_encryption_passphrase();
 
         assert!(!credentials.should_re_encrypt_metadata("example-passphrase"));
+    }
+
+    #[test]
+    fn encrypted_uploads_require_a_configured_passphrase() {
+        let mut credentials = example_credentials();
+        credentials.clear_encryption_passphrase();
+
+        assert_eq!(
+            credentials
+                .encryption_passphrase_for_upload()
+                .unwrap_err()
+                .to_string(),
+            "Set an encryption passphrase in Settings before uploading encrypted files."
+        );
     }
 }

@@ -81,8 +81,7 @@
                     <input
                             type="password"
                             id="encryption-passphrase"
-                            placeholder="Encryption passphrase (make it safe)"
-                            required
+                            placeholder="Encryption passphrase (optional)"
                     />
                     <button
                             type="button"
@@ -92,7 +91,7 @@
                             title="Remove saved value from Keychain"
                     >×</button>
                 </div>
-                <span class="hint">If you select to encrypt your uploads, they will be encrypted using this passphrase.</span>
+                <span class="hint">Optional. Without a passphrase, uploads can only be unencrypted.</span>
             </div>
 
             <div id="setup-error" class="error hidden"></div>
@@ -176,8 +175,9 @@
         <div id="encrypt-confirm-files" class="encrypt-file-list"></div>
         <div class="encrypt-toggle-row">
             <input type="checkbox" id="encrypt-toggle" />
-            <label for="encrypt-toggle">Encrypt</label>
+            <label id="encrypt-toggle-label" for="encrypt-toggle">Encrypt</label>
         </div>
+        <span id="encrypt-unavailable" class="encrypt-unavailable hidden">Set an encryption passphrase in Settings to enable encrypted uploads.</span>
         <div class="modal-buttons">
             <button id="encrypt-confirm-cancel">Cancel</button>
             <button id="encrypt-confirm-upload">Upload</button>
@@ -244,6 +244,24 @@
         </div>
     </div>
 </div>
+<div
+        id="encrypted-copy-download-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="encrypted-copy-download-title"
+        aria-describedby="encrypted-copy-download-message"
+>
+    <div class="modal-content encrypted-copy-download-content">
+        <h3 id="encrypted-copy-download-title">Download Encrypted Copy?</h3>
+        <p id="encrypted-copy-download-message"></p>
+        <p id="encrypted-copy-download-filename" class="modal-filename"></p>
+        <div class="modal-buttons">
+            <button id="encrypted-copy-download-cancel">Cancel</button>
+            <button id="encrypted-copy-download-confirm">Download Encrypted Copy</button>
+        </div>
+    </div>
+</div>
 <div id="delete-confirm-modal" class="modal hidden">
     <div class="modal-content">
         <h3>Delete</h3>
@@ -251,6 +269,23 @@
         <div class="modal-buttons">
             <button id="delete-confirm-cancel">Cancel</button>
             <button id="delete-confirm-ok" class="btn-danger">Delete</button>
+        </div>
+    </div>
+</div>
+
+<div
+        id="credential-removal-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credential-removal-title"
+>
+    <div class="modal-content credential-removal-content">
+        <h3 id="credential-removal-title"></h3>
+        <p id="credential-removal-message"></p>
+        <div class="modal-buttons">
+            <button id="credential-removal-cancel">Cancel</button>
+            <button id="credential-removal-confirm" class="btn-danger">Remove</button>
         </div>
     </div>
 </div>

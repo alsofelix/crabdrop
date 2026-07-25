@@ -109,8 +109,8 @@ body {
     padding: 0;
     transform: translateY(-50%);
     border: 0;
-    border-radius: 50%;
-    background: #3a3a3a;
+    border-radius: 0;
+    background: transparent;
     color: #ccc;
     font-size: 1.2em;
     line-height: 1;
@@ -119,8 +119,8 @@ body {
 
 .input-clear:hover,
 .input-clear:focus-visible {
-    background: #ff6b35;
-    color: #fff;
+    background: transparent;
+    color: #ff6b35;
     outline: none;
 }
 
@@ -174,12 +174,15 @@ header h1 {
     margin-bottom: 15px;
 }
 
-.toolbar button {
+.toolbar button,
+#sort-select {
     padding: 8px 16px;
     background: #3a3a3a;
     border: none;
     border-radius: 6px;
     color: #fff;
+    font-family: inherit;
+    font-size: 0.8rem;
     cursor: pointer;
 }
 
@@ -217,12 +220,6 @@ header h1 {
 
 #sort-select {
     padding: 8px 10px;
-    background: #3a3a3a;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.85em;
-    cursor: pointer;
     color-scheme: dark;
 }
 
@@ -307,17 +304,25 @@ header h1 {
 }
 
 .file-item .icon {
+    flex-shrink: 0;
     margin-right: 12px;
     font-size: 1.2em;
 }
 
 .file-item .name {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .file-item .size {
+    flex-shrink: 0;
     color: #888;
     font-size: 0.9em;
+    white-space: nowrap;
 }
 
 .drag-overlay {
@@ -379,6 +384,7 @@ header h1 {
     padding: 24px;
     border-radius: 8px;
     min-width: 300px;
+    max-width: calc(100vw - 40px);
 }
 
 .modal-content h3 {
@@ -400,6 +406,87 @@ header h1 {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+}
+
+#delete-confirm-modal .modal-buttons {
+    margin-top: 24px;
+}
+
+#delete-confirm-modal .modal-content {
+    width: min(560px, calc(100vw - 40px));
+}
+
+#encrypt-confirm-modal .modal-content,
+.share-modal-content {
+    width: min(440px, calc(100vw - 40px));
+}
+
+#delete-confirm-message {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: baseline;
+}
+
+.delete-confirm-filename {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.credential-removal-content {
+    max-width: 440px;
+}
+
+.credential-removal-content p {
+    color: #ccc;
+    line-height: 1.45;
+}
+
+.credential-removal-content .modal-buttons {
+    margin-top: 24px;
+}
+
+.encrypted-copy-download-content {
+    width: min(480px, calc(100vw - 40px));
+}
+
+.encrypted-copy-download-content > p {
+    color: #ccc;
+    line-height: 1.45;
+}
+
+.modal-filename {
+    margin-top: 14px;
+    overflow: hidden;
+    color: #888 !important;
+    font-size: 0.85rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.encrypted-copy-download-content .modal-buttons {
+    margin-top: 24px;
+}
+
+#encrypted-copy-download-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#encrypted-copy-download-confirm {
+    background: #ff6b35;
+    color: #fff;
+}
+
+#credential-removal-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#credential-removal-confirm:disabled {
+    background: #74423f;
+    cursor: not-allowed;
 }
 
 .modal-buttons button {
@@ -492,6 +579,7 @@ header h1 {
 
 .upload-name {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -621,6 +709,11 @@ header h1 {
     align-items: center;
     gap: 10px;
     margin-bottom: 16px;
+}
+
+#download-name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -672,14 +765,16 @@ header h1 {
 
 /* Share Modal */
 .share-modal-content {
-    min-width: 360px;
+    min-width: min(360px, calc(100vw - 40px));
 }
 
 .share-filename {
     color: #888;
     font-size: 0.9em;
     margin-bottom: 16px;
-    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .share-modal-content select {
@@ -779,6 +874,18 @@ header h1 {
     cursor: pointer;
 }
 
+.encrypt-toggle-row label.disabled {
+    cursor: not-allowed;
+    color: #666;
+}
+
+.encrypt-unavailable {
+    display: block;
+    margin: -8px 0 16px;
+    color: #ffb347;
+    font-size: 0.8em;
+}
+
 #encrypt-confirm-count {
     color: #888;
     font-size: 0.9em;
@@ -796,25 +903,78 @@ header h1 {
 }
 
 .encrypt-file-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    display: block;
+    overflow: hidden;
     padding: 6px 10px;
     background: #1a1a1a;
     border-radius: 4px;
     margin-bottom: 4px;
     font-size: 0.85em;
     color: #ccc;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .encrypt-file-item:last-child {
     margin-bottom: 0;
 }
 
+.file-item .lock-icon,
+.file-item .likely-encrypted-icon {
+    flex-shrink: 0;
+    margin-right: 22px;
+}
+
 .file-item .lock-icon {
-    margin-left: 6px;
     color: #ff6b35;
     font-size: 0.8em;
+}
+
+.file-item .likely-encrypted-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffb347;
+    font-size: 0.9em;
+    cursor: help;
+}
+
+.file-item .likely-encrypted-tooltip {
+    position: absolute;
+    right: -6px;
+    bottom: calc(100% + 8px);
+    z-index: 10;
+    width: max-content;
+    max-width: 250px;
+    padding: 7px 9px;
+    border: 1px solid #555;
+    border-radius: 5px;
+    background: #1a1a1a;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    color: #ddd;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(3px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.file-item .likely-encrypted-icon:hover .likely-encrypted-tooltip,
+.file-item .likely-encrypted-icon:focus-visible .likely-encrypted-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.file-item .likely-encrypted-icon:focus-visible {
+    color: #ff6b35;
+    outline: none;
 }
 
 .share-encrypted-notice {

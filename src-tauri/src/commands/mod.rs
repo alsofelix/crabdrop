@@ -196,14 +196,12 @@ pub async fn upload_path(
         None
     };
 
-    if encrypted {
+    if let Some(config) = config.as_ref() {
         password = Some(
             config
-                .as_ref()
-                .ok_or(String::from("NO CONFIG OK??"))?
                 .credentials
-                .encryption_passphrase
-                .as_bytes(),
+                .encryption_passphrase_for_upload()
+                .map_err(|e| e.to_string())?,
         );
     }
 
@@ -299,11 +297,32 @@ pub async fn download_file(
     };
 
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
-    let file = client.download_file(key).await.map_err(|e| e.to_string())?;
+    let (resolved_filename, encryption_key) = if encrypted {
+        let config = config::Config::load().map_err(|e| e.to_string())?;
+        let metadata = client
+            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        let encrypted_filename = key
+            .rsplit_once("/")
+            .map(|(_, right)| right)
+            .unwrap_or(key);
+        let resolved_filename =
+            metadata::get_filename(&metadata, encrypted_filename).map_err(|e| e.to_string())?;
+        let encryption_key = derive_key(
+            config.credentials.encryption_passphrase.as_bytes(),
+            resolved_filename.as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
 
+        (resolved_filename, Some(encryption_key))
+    } else {
+        (filename.to_string(), None)
+    };
+
+    let file = client.download_file(key).await.map_err(|e| e.to_string())?;
     let (lower, upper) = file.size_hint();
     let total_bytes = upper.unwrap_or(lower);
-
     let mut body = file.into_async_read();
 
     let file_path = get_unique_path(&download_dir, filename);
@@ -312,103 +331,107 @@ pub async fn download_file(
             Some(ext) => format!("{ext}.crabdroptemp"),
             None => String::from("crabdroptemp"),
         });
+
+    let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
     app.emit(
         "download_start",
         serde_json::json!({
-            "filename": filename,
+            "filename": resolved_filename,
             "totalBytes": total_bytes,
         }),
     )
     .ok();
 
-    let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
-    let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
+    let download_result: Result<u64, String> = async {
+        let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut downloaded: u64 = 0;
+        let mut buf_decrypt: Vec<u8> = Vec::new();
 
-    let mut buffer = vec![0u8; 1024 * 1024];
-    let mut downloaded: u64 = 0;
-    let mut buf_decrypt: Vec<u8> = Vec::new();
+        loop {
+            let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
 
-    let config = config::Config::load().map_err(|e| e.to_string())?;
-    let metadata = client
-        .get_metadata(config.credentials.encryption_passphrase.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
+            if !encrypted {
+                writer
+                    .write_all(&buffer[..n])
+                    .await
+                    .map_err(|e| e.to_string())?;
+                downloaded += n as u64;
+                app.emit(
+                    "download_progress",
+                    serde_json::json!({
+                        "filename": resolved_filename,
+                        "downloadedBytes": downloaded,
+                        "totalBytes": total_bytes,
+                    }),
+                )
+                .ok();
+                continue;
+            }
 
-    let mut filename = if key.contains("/") {
-        key.rsplit_once("/")
-            .map(|(_, right)| right)
-            .ok_or("Bad thing")?
-            .to_string()
-    } else {
-        key.to_string()
-    };
+            buf_decrypt.extend(&buffer[..n]);
 
-    if encrypted {
-        filename = metadata::get_filename(&metadata, &filename).map_err(|e| e.to_string())?;
-    }
-
-    let enc_key = derive_key(
-        config.credentials.encryption_passphrase.as_bytes(),
-        filename.as_bytes(),
-    )
-    .map_err(|e| e.to_string())?;
-    loop {
-        let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-
-        if !encrypted {
-            writer
-                .write_all(&buffer[..n])
-                .await
+            while buf_decrypt.len() >= CHUNK_TOTAL {
+                let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
+                decrypt_chunk(
+                    &mut chunk,
+                    encryption_key
+                        .as_ref()
+                        .ok_or("Encryption key is unavailable")?,
+                )
                 .map_err(|e| e.to_string())?;
+                writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            }
             downloaded += n as u64;
+
             app.emit(
                 "download_progress",
                 serde_json::json!({
-                    "filename": filename,
+                    "filename": resolved_filename,
                     "downloadedBytes": downloaded,
                     "totalBytes": total_bytes,
                 }),
             )
             .ok();
-            continue;
         }
 
-        buf_decrypt.extend(&buffer[..n]);
-
-        while buf_decrypt.len() >= CHUNK_TOTAL {
-            let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
-            decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+        if !buf_decrypt.is_empty() {
+            let mut chunk = buf_decrypt;
+            decrypt_chunk(
+                &mut chunk,
+                encryption_key
+                    .as_ref()
+                    .ok_or("Encryption key is unavailable")?,
+            )
+            .map_err(|e| e.to_string())?;
             writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
         }
-        downloaded += n as u64;
 
-        app.emit(
-            "download_progress",
-            serde_json::json!({
-                "filename": filename,
-                "downloadedBytes": downloaded,
-                "totalBytes": total_bytes,
-            }),
-        )
-        .ok();
+        writer.flush().await.map_err(|e| e.to_string())?;
+        Ok(downloaded)
+    }
+    .await;
+
+    let downloaded = match download_result {
+        Ok(downloaded) => downloaded,
+        Err(error) => {
+            tokio::fs::remove_file(&temp_path).await.ok();
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = std::fs::rename(&temp_path, &file_path) {
+        tokio::fs::remove_file(&temp_path).await.ok();
+        return Err(error.to_string());
     }
 
-    if !buf_decrypt.is_empty() {
-        let mut chunk = buf_decrypt;
-        decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
-        writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
-    }
-
-    writer.flush().await.map_err(|e| e.to_string())?;
-
-    std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
     app.emit(
         "download_complete",
         serde_json::json!({
-            "filename": filename,
+            "filename": resolved_filename,
             "totalBytes": downloaded,
         }),
     )
