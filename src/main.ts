@@ -1,5 +1,10 @@
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
+import {
+    determineStartupDestination,
+    formatBucketPath,
+    getEndpointWarning,
+} from "./ui_logic";
 
 type AlertType = "success" | "error" | "warning";
 
@@ -82,6 +87,7 @@ interface DropPayload {
 }
 
 let currentPath = "";
+let currentBucket = "";
 let currentFiles: File[] = [];
 let pendingDropPaths: string[] = [];
 
@@ -185,6 +191,7 @@ async function loadFiles(prefix: string): Promise<void> {
         applyFilters();
     } catch (e) {
         console.error("Failed to load files:", e);
+        showAlert(String(e), "error", 8000);
     }
 }
 
@@ -194,6 +201,7 @@ async function uploadPath(localPath: string, targetPrefix: string, uploadId: str
         console.log("Uploaded:", targetPrefix);
     } catch (e) {
         console.error("Upload failed:", e);
+        showAlert(String(e), "error", 8000);
         uploadStates.delete(uploadId);
         renderUploadOverlay();
     }
@@ -214,10 +222,20 @@ async function init() {
 
     const isConfigured = await invoke<boolean>("check_config");
     if (isConfigured) {
+        const config = await invoke<Config>("get_config");
+        currentBucket = config.storage.bucket;
+    }
+
+    const destination = await determineStartupDestination(
+        isConfigured,
+        () => invoke<void>("test_connection"),
+    );
+
+    if (destination.screen === "browser") {
         showScreen("browser");
         await loadFiles("");
     } else {
-        showScreen("setup");
+        await loadConfig(destination.error);
     }
 }
 
@@ -241,6 +259,7 @@ async function deleteFile(file: File): Promise<void> {
         await loadFiles(currentPath);
     } catch (e) {
         console.error("Delete failed:", e);
+        showAlert(String(e), "error", 8000);
     }
 }
 
@@ -281,15 +300,20 @@ function confirmDelete(file: File): void {
 }
 
 async function handleConnection() {
-    const endpoint = (document.getElementById("endpoint") as HTMLInputElement).value;
-    const bucket = (document.getElementById("bucket") as HTMLInputElement).value;
-    const region = (document.getElementById("region") as HTMLInputElement).value;
-    const accessKey = (document.getElementById("access-key") as HTMLInputElement).value;
+    const endpoint = (document.getElementById("endpoint") as HTMLInputElement).value.trim();
+    const bucket = (document.getElementById("bucket") as HTMLInputElement).value.trim();
+    const region = (document.getElementById("region") as HTMLInputElement).value.trim();
+    const accessKey = (document.getElementById("access-key") as HTMLInputElement).value.trim();
     let secretKey: string | undefined = (document.getElementById("secret-key") as HTMLInputElement).value;
     let encryptionPassphrase: string | undefined = (document.getElementById("encryption-passphrase") as HTMLInputElement).value;
 
     const errorEl = document.getElementById("setup-error")!;
     const btn = document.getElementById("btn-connect") as HTMLButtonElement;
+    const endpointWarning = updateEndpointWarning();
+    if (endpointWarning) {
+        (document.getElementById("endpoint") as HTMLInputElement).focus();
+        return;
+    }
 
     try {
         btn.disabled = true;
@@ -307,6 +331,7 @@ async function handleConnection() {
         await invoke("save_config", {endpoint, bucket, region, accessKey, secretKey, encryptionPassphrase});
         await invoke("test_connection");
 
+        currentBucket = bucket;
         showScreen("browser");
         await loadFiles("");
     } catch (err) {
@@ -318,11 +343,58 @@ async function handleConnection() {
     }
 }
 
+function updateEndpointWarning(): string | null {
+    const endpoint = (document.getElementById("endpoint") as HTMLInputElement).value;
+    const warning = getEndpointWarning(endpoint);
+    const warningEl = document.getElementById("endpoint-warning")!;
+
+    warningEl.textContent = warning ?? "";
+    warningEl.classList.toggle("hidden", warning === null);
+    return warning;
+}
+
+async function clearSavedSecretAccessKey(): Promise<void> {
+    const confirmed = window.confirm(
+        "Remove the saved Secret Access Key from Keychain? You will need to enter it again before reconnecting.",
+    );
+    if (!confirmed) return;
+
+    try {
+        await invoke("clear_saved_secret_access_key");
+        await loadConfig();
+        showAlert("Saved Secret Access Key removed from Keychain.", "success");
+    } catch (error) {
+        showAlert(String(error), "error", 8000);
+    }
+}
+
+async function clearSavedEncryptionPassphrase(): Promise<void> {
+    const confirmed = window.confirm(
+        "Remove the saved Encryption Passphrase from Keychain? Existing encrypted filenames and files still require it, and crabdrop cannot recover it.",
+    );
+    if (!confirmed) return;
+
+    try {
+        await invoke("clear_saved_encryption_passphrase");
+        await loadConfig();
+        showAlert("Saved Encryption Passphrase removed from Keychain.", "success");
+    } catch (error) {
+        showAlert(String(error), "error", 8000);
+    }
+}
+
 function setUpConnScreen() {
     document.getElementById("setup-form")?.addEventListener("submit", async (e) => {
         e.preventDefault()
         await handleConnection()
-    })
+    });
+
+    document.getElementById("endpoint")?.addEventListener("input", updateEndpointWarning);
+    document.getElementById("clear-secret-key")?.addEventListener("click", clearSavedSecretAccessKey);
+    document.getElementById("clear-encryption-passphrase")?.addEventListener(
+        "click",
+        clearSavedEncryptionPassphrase,
+    );
 }
 
 function showScreen(screen: "setup" | "browser") {
@@ -636,7 +708,7 @@ function setupDownloadEvents() {
 
 function updateBreadcrumb(path: string): void {
     const el = document.getElementById("current-path")!;
-    el.textContent = "/" + path || "/";
+    el.textContent = formatBucketPath(currentBucket, path);
 }
 
 function renderFiles(files: File[]): void {
@@ -802,8 +874,9 @@ function navigateUp(): void {
     loadFiles(parts.length ? parts.join("/") + "/" : "");
 }
 
-async function loadConfig(): Promise<void> {
+async function loadConfig(connectionError: string | null = null): Promise<void> {
     const config: Config = await invoke<Config>("get_config");
+    currentBucket = config.storage.bucket;
 
     (document.getElementById("endpoint") as HTMLInputElement).value = config.storage.endpoint;
     (document.getElementById("bucket") as HTMLInputElement).value = config.storage.bucket;
@@ -816,6 +889,7 @@ async function loadConfig(): Promise<void> {
     secretEl.placeholder = config.has_secret
         ? "Saved in Keychain (leave blank to keep)"
         : "Enter secret key";
+    document.getElementById("clear-secret-key")!.classList.toggle("hidden", !config.has_secret);
 
     const encPassEl = document.getElementById("encryption-passphrase") as HTMLInputElement;
     encPassEl.value = "";
@@ -826,6 +900,15 @@ async function loadConfig(): Promise<void> {
         encPassEl.placeholder = "Encryption passphrase (make it safe)";
         encPassEl.required = true;
     }
+    document
+        .getElementById("clear-encryption-passphrase")!
+        .classList.toggle("hidden", !config.has_encryption_passphrase);
+
+    updateEndpointWarning();
+
+    const errorEl = document.getElementById("setup-error")!;
+    errorEl.textContent = connectionError ?? "";
+    errorEl.classList.toggle("hidden", connectionError === null);
 
     showScreen("setup");
 }
@@ -954,6 +1037,7 @@ function setupFolderModal() {
             await loadFiles(currentPath);
         } catch (e) {
             console.error("Failed to create folder:", e);
+            showAlert(String(e), "error", 8000);
         }
     });
 

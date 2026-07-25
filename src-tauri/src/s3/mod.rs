@@ -1,10 +1,12 @@
 use crate::config::Config;
 use crate::crypto::{decrypt, encrypt};
 use crate::metadata;
+use crate::operation::friendly_sdk_error;
 use crate::types::File;
 use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
@@ -64,7 +66,10 @@ impl S3Client {
                 request = request.continuation_token(token);
             }
 
-            let objs = request.send().await?;
+            let objs = request
+                .send()
+                .await
+                .map_err(|error| anyhow!(friendly_sdk_error("listing files", &error)))?;
 
             for file in objs.contents() {
                 let key = file
@@ -227,7 +232,8 @@ impl S3Client {
             .key(&s3_key)
             .body(bytestream)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("uploading a file", &error)))?;
 
         if encrypted {
             if let Err(e) = self
@@ -249,7 +255,7 @@ impl S3Client {
     }
 
     pub async fn get_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
-        match self.get_file(CRABDROP_METADATA_FILE_NAME).await {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
             Some(mut metadata) => {
                 decrypt(
                     &mut metadata,
@@ -301,18 +307,14 @@ impl S3Client {
             .key(CRABDROP_METADATA_FILE_NAME)
             .body(bytestream)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("saving metadata", &error)))?;
 
         Ok(dummy_data)
     }
 
-    pub async fn meta_file_exists(&self) -> bool {
-        let meta = self.get_file(CRABDROP_METADATA_FILE_NAME).await;
-
-        match meta {
-            Some(_) => true,
-            None => false,
-        }
+    pub async fn meta_file_exists(&self) -> anyhow::Result<bool> {
+        Ok(self.get_file(CRABDROP_METADATA_FILE_NAME).await?.is_some())
     }
 
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
@@ -325,19 +327,32 @@ impl S3Client {
         Ok(())
     }
 
-    async fn get_file(&self, key: &str) -> Option<Vec<u8>> {
-        let file = self
+    async fn get_file(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let file = match self
             .client
             .get_object()
             .bucket(&self.bucket_name)
             .key(key)
             .send()
             .await
-            .ok()?;
+        {
+            Ok(file) => file,
+            Err(error) if matches!(error.code(), Some("NoSuchKey" | "NotFound" | "404")) => {
+                return Ok(None);
+            }
+            Err(error) => {
+                return Err(anyhow!(friendly_sdk_error("reading metadata", &error)));
+            }
+        };
 
-        let res = file.body.collect().await.ok()?.into_bytes();
+        let res = file
+            .body
+            .collect()
+            .await
+            .map_err(|error| anyhow!("Could not read metadata: {error}"))?
+            .into_bytes();
 
-        Some(res.to_vec())
+        Ok(Some(res.to_vec()))
     }
 
     pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
@@ -346,7 +361,8 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(key)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("deleting a file", &error)))?;
         Ok(())
     }
 
@@ -364,7 +380,15 @@ impl S3Client {
                 request = request.continuation_token(token);
             }
 
-            let response = request.send().await?;
+            let response = request
+                .send()
+                .await
+                .map_err(|error| {
+                    anyhow!(friendly_sdk_error(
+                        "listing a folder for deletion",
+                        &error
+                    ))
+                })?;
 
             let keys: Vec<String> = response
                 .contents()
@@ -392,7 +416,10 @@ impl S3Client {
                                 .build()?,
                         )
                         .send()
-                        .await?;
+                        .await
+                        .map_err(|error| {
+                            anyhow!(friendly_sdk_error("deleting a folder", &error))
+                        })?;
                 }
             }
 
@@ -423,7 +450,8 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(key)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("downloading a file", &error)))?;
 
         Ok(file.body)
     }
@@ -463,7 +491,8 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(&key_)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("starting an upload", &error)))?;
 
         let upload_id = con
             .upload_id()
@@ -574,7 +603,10 @@ impl S3Client {
                     );
                 }
                 Err(e) => {
-                    upload_error = Some(e.into());
+                    upload_error = Some(anyhow!(friendly_sdk_error(
+                        "uploading a file part",
+                        &e
+                    )));
                     break;
                 }
             }
@@ -606,7 +638,8 @@ impl S3Client {
                     .build(),
             )
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("finishing an upload", &error)))?;
 
         if encrypted {
             if let Err(e) = self

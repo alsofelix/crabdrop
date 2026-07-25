@@ -23,6 +23,7 @@
                         placeholder="https://s3.us-east-1.amazonaws.com"
                 />
                 <span class="hint">Leave empty for AWS (uses region), or enter custom endpoint for MinIO/R2</span>
+                <span id="endpoint-warning" class="field-warning hidden"></span>
             </div>
 
             <div class="form-group">
@@ -30,7 +31,7 @@
                 <input
                         type="text"
                         id="bucket"
-                        placeholder="my-bucket"
+                        placeholder="amzn-s3-demo-bucket"
                         required
                 />
             </div>
@@ -50,29 +51,47 @@
                 <input
                         type="text"
                         id="access-key"
-                        placeholder="AKIA..."
+                        placeholder="AKIAIOSFODNN7EXAMPLE"
                         required
                 />
             </div>
 
             <div class="form-group">
                 <label for="secret-key">Secret Access Key</label>
-                <input
-                        type="password"
-                        id="secret-key"
-                        placeholder="••••••••"
-                        required
-                />
+                <div class="input-with-clear">
+                    <input
+                            type="password"
+                            id="secret-key"
+                            placeholder="••••••••"
+                            required
+                    />
+                    <button
+                            type="button"
+                            id="clear-secret-key"
+                            class="input-clear hidden"
+                            aria-label="Remove saved Secret Access Key from Keychain"
+                            title="Remove saved value from Keychain"
+                    >×</button>
+                </div>
             </div>
 
             <div class="form-group">
                 <label for="encryption-passphrase">Encryption Passphrase</label>
-                <input
-                        type="password"
-                        id="encryption-passphrase"
-                        placeholder="Encryption passphrase (make it safe)"
-                        required
-                />
+                <div class="input-with-clear">
+                    <input
+                            type="password"
+                            id="encryption-passphrase"
+                            placeholder="Encryption passphrase (make it safe)"
+                            required
+                    />
+                    <button
+                            type="button"
+                            id="clear-encryption-passphrase"
+                            class="input-clear hidden"
+                            aria-label="Remove saved Encryption Passphrase from Keychain"
+                            title="Remove saved value from Keychain"
+                    >×</button>
+                </div>
                 <span class="hint">If you select to encrypt your uploads, they will be encrypted using this passphrase.</span>
             </div>
 
@@ -91,7 +110,7 @@
     </header>
 
     <nav class="breadcrumb">
-        <span id="current-path">/</span>
+        <span id="current-path">/amzn-s3-demo-bucket</span>
     </nav>
 
     <div class="toolbar">

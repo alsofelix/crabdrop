@@ -37,6 +37,18 @@ impl CredentialsConfig {
         self.access_key_id.clear();
         self.secret_access_key.clear();
     }
+
+    pub fn clear_secret_access_key(&mut self) {
+        self.secret_access_key.clear();
+    }
+
+    pub fn clear_encryption_passphrase(&mut self) {
+        self.encryption_passphrase.clear();
+    }
+
+    pub fn should_re_encrypt_metadata(&self, new_passphrase: &str) -> bool {
+        !self.encryption_passphrase.is_empty() && self.encryption_passphrase != new_passphrase
+    }
 }
 
 impl Config {
@@ -81,6 +93,18 @@ impl Config {
         let content = self.to_toml()?;
         std::fs::write(get_config_path()?, content)?;
         Ok(())
+    }
+
+    pub fn remove_saved_secret_access_key() -> anyhow::Result<()> {
+        let mut config = Self::load()?;
+        config.credentials.clear_secret_access_key();
+        config.save()
+    }
+
+    pub fn remove_saved_encryption_passphrase() -> anyhow::Result<()> {
+        let mut config = Self::load()?;
+        config.credentials.clear_encryption_passphrase();
+        config.save()
     }
 
     pub fn encryption_pass_exists(&self) -> bool {
@@ -144,4 +168,50 @@ fn save_credential_to_keyring(credentials_config: &CredentialsConfig) -> anyhow:
     entry.set_password(&payload)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn example_credentials() -> CredentialsConfig {
+        CredentialsConfig {
+            access_key_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string(),
+            encryption_passphrase: "example-passphrase".to_string(),
+        }
+    }
+
+    #[test]
+    fn clearing_the_secret_key_preserves_other_saved_values() {
+        let mut credentials = example_credentials();
+
+        credentials.clear_secret_access_key();
+
+        assert_eq!(credentials.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+        assert!(credentials.secret_access_key.is_empty());
+        assert_eq!(credentials.encryption_passphrase, "example-passphrase");
+    }
+
+    #[test]
+    fn clearing_the_encryption_passphrase_preserves_s3_credentials() {
+        let mut credentials = example_credentials();
+
+        credentials.clear_encryption_passphrase();
+
+        assert_eq!(credentials.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(
+            credentials.secret_access_key,
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        );
+        assert!(credentials.encryption_passphrase.is_empty());
+    }
+
+    #[test]
+    fn restoring_a_removed_passphrase_does_not_rotate_metadata() {
+        let mut credentials = example_credentials();
+        credentials.clear_encryption_passphrase();
+
+        assert!(!credentials.should_re_encrypt_metadata("example-passphrase"));
+    }
 }

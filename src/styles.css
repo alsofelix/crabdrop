@@ -85,6 +85,45 @@ body {
     color: #666;
 }
 
+.field-warning {
+    display: block;
+    margin-top: 6px;
+    color: #ffb347;
+    font-size: 0.8em;
+}
+
+.input-with-clear {
+    position: relative;
+}
+
+.input-with-clear input {
+    padding-right: 42px;
+}
+
+.input-clear {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 50%;
+    background: #3a3a3a;
+    color: #ccc;
+    font-size: 1.2em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.input-clear:hover,
+.input-clear:focus-visible {
+    background: #ff6b35;
+    color: #fff;
+    outline: none;
+}
+
 .error {
     background: rgba(255, 100, 100, 0.1);
     border: 1px solid #ff6464;

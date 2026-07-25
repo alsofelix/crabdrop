@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::crypto::{decrypt_chunk, derive_key};
+use crate::operation::run_quick_operation;
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, metadata, types};
@@ -47,7 +48,7 @@ pub async fn list_files(
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.list_dir(prefix).await.map_err(|e| e.to_string())
+    run_quick_operation("Listing files", client.list_dir(prefix)).await
 }
 
 #[tauri::command]
@@ -67,10 +68,6 @@ pub async fn save_config(
     encryption_passphrase: Option<String>,
 ) -> Result<(), String> {
     let mut config_curr = config::Config::load().map_err(|e| e.to_string())?;
-    let client = {
-        let guard = state.lock().await;
-        guard.as_ref().cloned()
-    };
 
     config_curr.storage.endpoint = endpoint;
     config_curr.storage.bucket = bucket;
@@ -81,24 +78,40 @@ pub async fn save_config(
         config_curr.credentials.secret_access_key = x;
     }
 
+    let client = S3Client::new(&config_curr).map_err(|e| e.to_string())?;
+
     if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
-        if let Some(client) = &client {
-            if client.meta_file_exists().await {
-                client
-                    .re_encrypt_metadata(
-                        x.as_bytes(),
-                        config_curr.credentials.encryption_passphrase.as_bytes(),
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
+        if config_curr.credentials.should_re_encrypt_metadata(&x) {
+            run_quick_operation("Updating encryption metadata", async {
+                if client.meta_file_exists().await? {
+                    client
+                        .re_encrypt_metadata(
+                            x.as_bytes(),
+                            config_curr.credentials.encryption_passphrase.as_bytes(),
+                        )
+                        .await?;
+                }
+                Ok(())
+            })
+            .await?;
+        } else if config_curr
+            .credentials
+            .encryption_passphrase
+            .is_empty()
+        {
+            run_quick_operation("Checking encryption passphrase", async {
+                if client.meta_file_exists().await? {
+                    client.get_metadata(x.as_bytes()).await?;
+                }
+                Ok(())
+            })
+            .await?;
         }
 
         config_curr.credentials.encryption_passphrase = x;
     }
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
-    let client = S3Client::new(&config_curr).map_err(|e1| e1.to_string())?;
     *guard = Some(client);
     Ok(())
 }
@@ -124,7 +137,7 @@ pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> 
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.list_dir("").await.map_err(|e| e.to_string())?;
+    run_quick_operation("Connection check", client.list_dir("")).await?;
     Ok(())
 }
 
@@ -138,8 +151,18 @@ pub async fn upload_folder(
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.upload_folder(key).await.map_err(|e| e.to_string())?;
+    run_quick_operation("Creating folder", client.upload_folder(key)).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn clear_saved_secret_access_key() -> Result<(), String> {
+    Config::remove_saved_secret_access_key().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_saved_encryption_passphrase() -> Result<(), String> {
+    Config::remove_saved_encryption_passphrase().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
