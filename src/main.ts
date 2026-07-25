@@ -6,6 +6,7 @@ import {
     determineStartupDestination,
     formatBucketPath,
     getCredentialRemovalPrompt,
+    getDownloadAllPrompt,
     getPassphraseFieldState,
     getSecretKeyFieldState,
     getEndpointWarning,
@@ -14,6 +15,7 @@ import {
     requiresEncryptedCopyConfirmation,
     runDownloadWithFailureCleanup,
     runRefreshWithFeedback,
+    selectDownloadAllFiles,
 } from "./ui_logic";
 
 type AlertType = "success" | "error" | "warning";
@@ -79,7 +81,16 @@ interface File {
     likelyEncrypted: boolean;
 }
 
+interface BatchDownloadState {
+    current: number;
+    total: number;
+    overlayDismissed: boolean;
+}
+
 let pendingEncryptedCopyDownload: File | null = null;
+let pendingDownloadAllFiles: File[] = [];
+let batchDownloadState: BatchDownloadState | null = null;
+let downloadCompletionTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface StorageConfig {
     endpoint: string;
@@ -235,6 +246,7 @@ async function init() {
     setupShareModal();
     setupCredentialRemovalModal();
     setupEncryptedCopyDownloadModal();
+    setupDownloadAllModal();
     setupKeyboardShortcuts();
 
     const isConfigured = await invoke<boolean>("check_config");
@@ -256,24 +268,27 @@ async function init() {
     }
 }
 
-async function downloadFile(file: File, allowEncryptedCopy = false): Promise<void> {
-    if (downloadState.active) return;
+async function downloadFile(file: File, allowEncryptedCopy = false): Promise<boolean> {
+    if (downloadState.active) return false;
     if (requiresEncryptedCopyConfirmation(file.likelyEncrypted, allowEncryptedCopy)) {
         showEncryptedCopyDownloadPrompt(file);
-        return;
+        return false;
     }
 
+    downloadState.active = true;
     try {
         await runDownloadWithFailureCleanup(
             () => invoke("download_file", {key: file.key, filename: file.name, encrypted: file.encrypted}),
             resetDownloadProgress,
         );
+        return true;
     } catch (e) {
         console.error("Download failed:", e);
         const msg = String(e).toLowerCase().includes("aead")
             ? "Encryption passphrase does not match"
             : String(e);
         showAlert(msg, "error");
+        return false;
     }
 }
 
@@ -317,6 +332,109 @@ function setupEncryptedCopyDownloadModal(): void {
     modal.addEventListener("click", event => {
         if (event.target === modal) {
             hideEncryptedCopyDownloadPrompt();
+        }
+    });
+}
+
+function showDownloadAllConfirmation(files: File[]): void {
+    if (files.length === 0) return;
+
+    const likelyEncryptedCount = files.filter(file => file.likelyEncrypted).length;
+    const prompt = getDownloadAllPrompt(files.length, likelyEncryptedCount);
+    const warning = document.getElementById("download-all-warning")!;
+
+    pendingDownloadAllFiles = [...files];
+    document.getElementById("download-all-title")!.textContent = prompt.title;
+    document.getElementById("download-all-message")!.textContent = prompt.message;
+    warning.textContent = prompt.warning ?? "";
+    warning.classList.toggle("hidden", prompt.warning === null);
+    document.getElementById("download-all-confirm")!.textContent = prompt.confirmLabel;
+    document.getElementById("download-all-modal")!.classList.remove("hidden");
+    (document.getElementById("download-all-cancel") as HTMLButtonElement).focus();
+}
+
+function hideDownloadAllConfirmation(): void {
+    pendingDownloadAllFiles = [];
+    document.getElementById("download-all-modal")!.classList.add("hidden");
+    (document.getElementById("file-list") as HTMLElement).focus();
+}
+
+async function waitForDownloadIdle(): Promise<void> {
+    const deadline = performance.now() + 2000;
+    while (downloadState.active && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    if (downloadState.active) {
+        resetDownloadProgress();
+    }
+}
+
+async function runDownloadAll(files: File[]): Promise<void> {
+    if (downloadState.active || batchDownloadState !== null) {
+        showAlert("Wait for the current download to finish.", "warning");
+        return;
+    }
+
+    const state: BatchDownloadState = {
+        current: 0,
+        total: files.length,
+        overlayDismissed: false,
+    };
+    batchDownloadState = state;
+    let completed = 0;
+    let failed = 0;
+
+    for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        state.current = index + 1;
+        const succeeded = await downloadFile(file, file.likelyEncrypted);
+        if (succeeded) {
+            completed++;
+        } else {
+            failed++;
+        }
+        await waitForDownloadIdle();
+    }
+
+    batchDownloadState = null;
+    resetDownloadProgress();
+    document.getElementById("download-title")!.textContent = "Downloading";
+
+    if (failed > 0) {
+        showAlert(`Downloaded ${completed} of ${files.length} files. ${failed} failed.`, "warning", 6000);
+    } else {
+        showAlert(
+            files.length === 1 ? "Downloaded 1 file." : `Downloaded ${files.length} files.`,
+            "success",
+        );
+    }
+}
+
+async function confirmDownloadAll(): Promise<void> {
+    const files = [...pendingDownloadAllFiles];
+    if (files.length === 0) return;
+
+    hideDownloadAllConfirmation();
+    await runDownloadAll(files);
+}
+
+function setupDownloadAllModal(): void {
+    const modal = document.getElementById("download-all-modal")!;
+    document
+        .getElementById("download-all-cancel")
+        ?.addEventListener("click", hideDownloadAllConfirmation);
+    document
+        .getElementById("download-all-confirm")
+        ?.addEventListener("click", confirmDownloadAll);
+    modal.addEventListener("click", event => {
+        if (event.target === modal) {
+            hideDownloadAllConfirmation();
+        }
+    });
+    modal.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            hideDownloadAllConfirmation();
         }
     });
 }
@@ -636,6 +754,10 @@ function hideDownloadOverlay() {
 }
 
 function resetDownloadProgress(): void {
+    if (downloadCompletionTimer !== null) {
+        clearTimeout(downloadCompletionTimer);
+        downloadCompletionTimer = null;
+    }
     hideDownloadOverlay();
     downloadState = {
         active: false,
@@ -775,10 +897,17 @@ function setupUploadEvents() {
 
 function setupDownloadEvents() {
     document.getElementById("download-close")?.addEventListener("click", () => {
-        resetDownloadProgress();
+        if (batchDownloadState !== null) {
+            batchDownloadState.overlayDismissed = true;
+        }
+        hideDownloadOverlay();
     });
 
     listen("download_start", (event: any) => {
+        if (downloadCompletionTimer !== null) {
+            clearTimeout(downloadCompletionTimer);
+            downloadCompletionTimer = null;
+        }
         const data = event.payload || {};
         const total = typeof data.totalBytes === "number"
             ? data.totalBytes
@@ -792,7 +921,12 @@ function setupDownloadEvents() {
             downloadedBytes: 0,
             totalBytes: total,
         };
-        showDownloadOverlay();
+        document.getElementById("download-title")!.textContent = batchDownloadState
+            ? `Downloading ${batchDownloadState.current} of ${batchDownloadState.total}`
+            : "Downloading";
+        if (!batchDownloadState?.overlayDismissed) {
+            showDownloadOverlay();
+        }
         updateDownloadUI();
     });
 
@@ -835,9 +969,11 @@ function setupDownloadEvents() {
         }
         downloadState.percent = 100;
         updateDownloadUI();
-        setTimeout(() => {
+        if (batchDownloadState !== null) {
             resetDownloadProgress();
-        }, 1000);
+        } else {
+            downloadCompletionTimer = setTimeout(resetDownloadProgress, 1000);
+        }
     });
 }
 
@@ -887,6 +1023,20 @@ function clearSelection(): void {
     selectedFileIndex = null;
 }
 
+interface ContextMenuPosition {
+    clientX: number;
+    clientY: number;
+}
+
+function positionContextMenu(menu: HTMLElement, event: ContextMenuPosition): void {
+    menu.classList.remove("hidden");
+    const bounds = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8));
+    const top = Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+}
+
 function showContextMenu(e: MouseEvent, file: File): void {
     e.preventDefault();
     selectedFile = file;
@@ -898,9 +1048,7 @@ function showContextMenu(e: MouseEvent, file: File): void {
     downloadBtn.classList.toggle("hidden", file.isFolder);
     shareBtn.classList.toggle("hidden", file.isFolder);
 
-    menu.style.left = e.clientX + "px";
-    menu.style.top = e.clientY + "px";
-    menu.classList.remove("hidden");
+    positionContextMenu(menu, e);
 }
 
 function hideContextMenu(): void {
@@ -908,11 +1056,68 @@ function hideContextMenu(): void {
     selectedFile = null;
 }
 
+function showBackgroundContextMenu(event: ContextMenuPosition, focusButton = false): void {
+    const menu = document.getElementById("background-context-menu")!;
+    const button = document.getElementById("ctx-download-all") as HTMLButtonElement;
+    const files = selectDownloadAllFiles(currentFiles);
+    const unavailable = files.length === 0 || downloadState.active || batchDownloadState !== null;
+
+    button.disabled = unavailable;
+    button.textContent = files.length === 0
+        ? "No Files to Download"
+        : `⬇️ Download All Files (${files.length})`;
+    positionContextMenu(menu, event);
+    if (focusButton) {
+        button.focus();
+    }
+}
+
+function hideBackgroundContextMenu(): void {
+    document.getElementById("background-context-menu")!.classList.add("hidden");
+}
+
 function setupContextMenu(): void {
-    document.addEventListener("click", hideContextMenu);
+    document.addEventListener("click", () => {
+        hideContextMenu();
+        hideBackgroundContextMenu();
+    });
     document.addEventListener("contextmenu", (e) => {
-        if (!(e.target as HTMLElement).closest(".file-item")) {
-            hideContextMenu();
+        const target = e.target as HTMLElement;
+        if (target.closest(".file-item")) {
+            hideBackgroundContextMenu();
+            return;
+        }
+
+        hideContextMenu();
+        const isBrowserBackground = target.closest("#browser-screen")
+            && !target.closest("input, textarea, select, button, a");
+        if (!isBrowserBackground) {
+            hideBackgroundContextMenu();
+            return;
+        }
+
+        e.preventDefault();
+        showBackgroundContextMenu(e);
+    });
+    document.getElementById("file-list")?.addEventListener("keydown", event => {
+        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+            return;
+        }
+
+        event.preventDefault();
+        hideContextMenu();
+        const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        showBackgroundContextMenu(
+            {clientX: bounds.left + 24, clientY: bounds.top + 24},
+            true,
+        );
+    });
+    document.addEventListener("keydown", event => {
+        if (event.key === "Escape"
+            && !document.getElementById("background-context-menu")!.classList.contains("hidden")) {
+            event.preventDefault();
+            hideBackgroundContextMenu();
+            (document.getElementById("file-list") as HTMLElement).focus();
         }
     });
 
@@ -935,6 +1140,12 @@ function setupContextMenu(): void {
             showShareModal(selectedFile);
         }
         hideContextMenu();
+    });
+
+    document.getElementById("ctx-download-all")?.addEventListener("click", () => {
+        const files = selectDownloadAllFiles(currentFiles);
+        hideBackgroundContextMenu();
+        showDownloadAllConfirmation(files);
     });
 }
 

@@ -157,7 +157,12 @@
         </div>
     </div>
 
-    <div id="file-list" class="file-list"></div>
+    <div
+            id="file-list"
+            class="file-list"
+            tabindex="0"
+            aria-label="Files. Press Shift+F10 for folder actions."
+    ></div>
 
 </main>
 
@@ -221,7 +226,7 @@
 <div id="download-overlay" class="upload-overlay hidden">
     <div class="upload-card">
         <div class="upload-header">
-            <span>Downloading</span>
+            <span id="download-title">Downloading</span>
             <button id="download-close" class="upload-close">✕</button>
         </div>
 
@@ -262,6 +267,24 @@
         </div>
     </div>
 </div>
+<div
+        id="download-all-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="download-all-title"
+        aria-describedby="download-all-message"
+>
+    <div class="modal-content download-all-content">
+        <h3 id="download-all-title">Download All Files?</h3>
+        <p id="download-all-message"></p>
+        <p id="download-all-warning" class="download-all-warning hidden"></p>
+        <div class="modal-buttons">
+            <button id="download-all-cancel">Cancel</button>
+            <button id="download-all-confirm">Download Files</button>
+        </div>
+    </div>
+</div>
 <div id="delete-confirm-modal" class="modal hidden">
     <div class="modal-content">
         <h3>Delete</h3>
@@ -290,10 +313,13 @@
     </div>
 </div>
 
-<div id="context-menu" class="context-menu hidden">
-    <button id="ctx-download">⬇️ Download</button>
-    <button id="ctx-share">🔗 Share</button>
-    <button id="ctx-delete">🗑️ Delete</button>
+<div id="context-menu" class="context-menu hidden" role="menu">
+    <button id="ctx-download" role="menuitem">⬇️ Download</button>
+    <button id="ctx-share" role="menuitem">🔗 Share</button>
+    <button id="ctx-delete" role="menuitem">🗑️ Delete</button>
+</div>
+<div id="background-context-menu" class="context-menu hidden" role="menu">
+    <button id="ctx-download-all" role="menuitem">⬇️ Download All Files</button>
 </div>
 
 <div id="share-modal" class="modal hidden">

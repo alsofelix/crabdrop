@@ -5,6 +5,7 @@ import {
     determineStartupDestination,
     formatBucketPath,
     getCredentialRemovalPrompt,
+    getDownloadAllPrompt,
     getPassphraseFieldState,
     getSecretKeyFieldState,
     getEndpointWarning,
@@ -13,6 +14,7 @@ import {
     requiresEncryptedCopyConfirmation,
     runDownloadWithFailureCleanup,
     runRefreshWithFeedback,
+    selectDownloadAllFiles,
 } from "../src/ui_logic.ts";
 
 test("custom endpoints require an http or https scheme", () => {
@@ -122,6 +124,34 @@ test("likely encrypted files require confirmation unless the encrypted copy was 
     assert.equal(requiresEncryptedCopyConfirmation(true, false), true);
     assert.equal(requiresEncryptedCopyConfirmation(true, true), false);
     assert.equal(requiresEncryptedCopyConfirmation(false, false), false);
+});
+
+test("download all includes only files directly listed in the current folder", () => {
+    const entries = [
+        {name: "photo.jpg", isFolder: false},
+        {name: "archive", isFolder: true},
+        {name: "notes.txt", isFolder: false},
+    ];
+
+    assert.deepEqual(selectDownloadAllFiles(entries), [
+        {name: "photo.jpg", isFolder: false},
+        {name: "notes.txt", isFolder: false},
+    ]);
+});
+
+test("download all confirmation reports skipped folders and encrypted copies", () => {
+    assert.deepEqual(getDownloadAllPrompt(3, 1), {
+        title: "Download All Files?",
+        message: "Download 3 files from this folder? Folders and everything inside them will be skipped.",
+        warning: "1 likely encrypted file will be downloaded as an encrypted copy.",
+        confirmLabel: "Download 3 Files",
+    });
+    assert.deepEqual(getDownloadAllPrompt(1, 0), {
+        title: "Download All Files?",
+        message: "Download 1 file from this folder? Folders and everything inside them will be skipped.",
+        warning: null,
+        confirmLabel: "Download File",
+    });
 });
 
 test("credential removal prompts explain exactly what will be removed", () => {

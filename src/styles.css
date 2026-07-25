@@ -271,6 +271,11 @@ header h1 {
     margin-bottom: 15px;
 }
 
+.file-list:focus-visible {
+    outline: 1px solid #ff6b35;
+    outline-offset: 2px;
+}
+
 .file-list-empty {
     display: flex;
     align-items: center;
@@ -451,7 +456,8 @@ header h1 {
     width: min(480px, calc(100vw - 40px));
 }
 
-.encrypted-copy-download-content > p {
+.encrypted-copy-download-content > p,
+.download-all-content > p {
     color: #ccc;
     line-height: 1.45;
 }
@@ -469,12 +475,32 @@ header h1 {
     margin-top: 24px;
 }
 
+.download-all-content {
+    width: min(480px, calc(100vw - 40px));
+}
+
+.download-all-warning {
+    margin-top: 12px;
+    color: #ffb347 !important;
+    font-size: 0.85rem;
+}
+
+.download-all-content .modal-buttons {
+    margin-top: 24px;
+}
+
 #encrypted-copy-download-cancel {
     background: #3a3a3a;
     color: #fff;
 }
 
-#encrypted-copy-download-confirm {
+#download-all-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#encrypted-copy-download-confirm,
+#download-all-confirm {
     background: #ff6b35;
     color: #fff;
 }
@@ -741,6 +767,10 @@ header h1 {
     z-index: 1000;
 }
 
+#background-context-menu {
+    min-width: 200px;
+}
+
 .context-menu button {
     display: block;
     width: 100%;
@@ -756,6 +786,15 @@ header h1 {
 
 .context-menu button:hover {
     background: #3a3a3a;
+}
+
+.context-menu button:disabled {
+    color: #666;
+    cursor: default;
+}
+
+.context-menu button:disabled:hover {
+    background: none;
 }
 
 .context-menu button#ctx-delete:hover {

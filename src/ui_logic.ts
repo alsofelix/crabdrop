@@ -117,6 +117,33 @@ export function requiresEncryptedCopyConfirmation(
     return likelyEncrypted && !encryptedCopyApproved;
 }
 
+export interface DownloadAllPrompt {
+    title: string;
+    message: string;
+    warning: string | null;
+    confirmLabel: string;
+}
+
+export function selectDownloadAllFiles<T extends {isFolder: boolean}>(entries: readonly T[]): T[] {
+    return entries.filter(entry => !entry.isFolder);
+}
+
+export function getDownloadAllPrompt(fileCount: number, likelyEncryptedCount: number): DownloadAllPrompt {
+    const fileNoun = fileCount === 1 ? "file" : "files";
+    const warning = likelyEncryptedCount === 0
+        ? null
+        : likelyEncryptedCount === 1
+            ? "1 likely encrypted file will be downloaded as an encrypted copy."
+            : `${likelyEncryptedCount} likely encrypted files will be downloaded as encrypted copies.`;
+
+    return {
+        title: "Download All Files?",
+        message: `Download ${fileCount} ${fileNoun} from this folder? Folders and everything inside them will be skipped.`,
+        warning,
+        confirmLabel: fileCount === 1 ? "Download File" : `Download ${fileCount} Files`,
+    };
+}
+
 export async function runDownloadWithFailureCleanup(
     download: () => Promise<void>,
     cleanup: () => void,
