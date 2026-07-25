@@ -81,6 +81,9 @@ where
         SdkError::TimeoutError(_) => {
             format!("The storage request timed out while {action}. Try again.")
         }
+        SdkError::DispatchFailure(error) if error.is_timeout() => {
+            format!("The storage request timed out while {action}. Try again.")
+        }
         SdkError::DispatchFailure(_) => format!(
             "Could not reach the storage endpoint while {action}. Check the endpoint URL, network connection, DNS, and TLS settings."
         ),
@@ -167,6 +170,15 @@ mod tests {
         assert_eq!(
             friendly_sdk_error("Connecting", &dispatch),
             "Could not reach the storage endpoint while connecting. Check the endpoint URL, network connection, DNS, and TLS settings."
+        );
+
+        let dispatch_timeout =
+            SdkError::<ErrorMetadata, ()>::dispatch_failure(ConnectorError::timeout(
+                io::Error::new(io::ErrorKind::TimedOut, "example connector timeout").into(),
+            ));
+        assert_eq!(
+            friendly_sdk_error("Connecting", &dispatch_timeout),
+            "The storage request timed out while connecting. Try again."
         );
     }
 }

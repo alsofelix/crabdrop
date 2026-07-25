@@ -82,18 +82,19 @@ pub async fn save_config(
 
     if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
         if config_curr.credentials.should_re_encrypt_metadata(&x) {
-            run_quick_operation("Updating encryption metadata", async {
-                if client.meta_file_exists().await? {
-                    client
-                        .re_encrypt_metadata(
-                            x.as_bytes(),
-                            config_curr.credentials.encryption_passphrase.as_bytes(),
-                        )
-                        .await?;
-                }
-                Ok(())
-            })
-            .await?;
+            if client
+                .meta_file_exists()
+                .await
+                .map_err(|e| e.to_string())?
+            {
+                client
+                    .re_encrypt_metadata(
+                        x.as_bytes(),
+                        config_curr.credentials.encryption_passphrase.as_bytes(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         } else if config_curr
             .credentials
             .encryption_passphrase
@@ -156,8 +157,14 @@ pub async fn upload_folder(
 }
 
 #[tauri::command]
-pub fn clear_saved_secret_access_key() -> Result<(), String> {
-    Config::remove_saved_secret_access_key().map_err(|e| e.to_string())
+pub async fn clear_saved_secret_access_key(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+) -> Result<(), String> {
+    Config::remove_saved_secret_access_key().map_err(|e| e.to_string())?;
+
+    let mut guard = state.lock().await;
+    *guard = None;
+    Ok(())
 }
 
 #[tauri::command]
