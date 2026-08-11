@@ -20,10 +20,11 @@
                 <input
                         type="text"
                         id="endpoint"
+                        aria-describedby="endpoint-warning"
                         placeholder="https://s3.us-east-1.amazonaws.com"
                 />
                 <span class="hint">Leave empty for AWS (uses region), or enter custom endpoint for MinIO/R2</span>
-                <span id="endpoint-warning" class="field-warning hidden"></span>
+                <span id="endpoint-warning" class="field-warning hidden" role="alert"></span>
             </div>
 
             <div class="form-group">
@@ -109,7 +110,7 @@
     </header>
 
     <nav class="breadcrumb">
-        <span id="current-path">/amzn-s3-demo-bucket</span>
+        <span id="current-path"></span>
     </nav>
 
     <div class="toolbar">
@@ -168,6 +169,7 @@
         <div
                 id="browser-status-message-container"
                 class="status-message-container browser-status-message-container"
+                aria-live="polite"
         ></div>
     </div>
 
@@ -183,11 +185,14 @@
 <div
         id="encrypt-confirm-modal"
         class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="encrypt-confirm-title"
         data-modal-primary="encrypt-confirm-upload"
         data-modal-cancel="encrypt-confirm-cancel"
 >
     <div class="modal-content">
-        <h3>Upload Files</h3>
+        <h3 id="encrypt-confirm-title">Upload Files</h3>
         <p id="encrypt-confirm-count"></p>
         <div id="encrypt-confirm-files" class="encrypt-file-list"></div>
         <div class="encrypt-toggle-row">
@@ -205,11 +210,14 @@
 <div
         id="folder-modal"
         class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="folder-modal-title"
         data-modal-primary="folder-create"
         data-modal-cancel="folder-cancel"
 >
     <div class="modal-content">
-        <h3>New Folder</h3>
+        <h3 id="folder-modal-title">New Folder</h3>
         <label for="folder-name"></label><input type="text" id="folder-name" placeholder="Folder name"/>
         <div class="modal-buttons">
             <button id="folder-cancel">Cancel</button>
@@ -358,11 +366,14 @@
 <div
         id="share-modal"
         class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-modal-title"
         data-modal-primary="share-generate"
         data-modal-cancel="share-cancel"
 >
     <div class="modal-content share-modal-content">
-        <h3>Share File</h3>
+        <h3 id="share-modal-title">Share File</h3>
         <p id="share-filename" class="share-filename"></p>
 
         <div class="form-group">

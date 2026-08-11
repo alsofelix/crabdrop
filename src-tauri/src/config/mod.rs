@@ -89,9 +89,7 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        if !self.credentials.is_empty() {
-            save_credential_to_keyring(&self.credentials)?;
-        }
+        save_credential_to_keyring(&self.credentials)?;
 
         let content = self.to_toml()?;
         let config_path = get_config_path()?;

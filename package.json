@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --test tests/*.test.ts",
+    "test": "node --test \"tests/*.test.ts\"",
     "preview": "vite preview",
     "tauri": "tauri"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

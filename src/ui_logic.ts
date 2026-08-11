@@ -306,7 +306,7 @@ export function getDownloadAllCompletionAlert(
     }
 
     return {
-        message: `Downloaded ${completedFiles} of ${totalFiles} files. ${failedFiles} failed.`,
+        message: `Downloaded ${completedFiles} of ${totalFiles} ${totalFiles === 1 ? "file" : "files"}. ${failedFiles} failed.`,
         type: "error",
         durationMs: 6000,
     };

@@ -3,12 +3,20 @@ use std::future::Future;
 use std::time::Duration;
 
 pub const QUICK_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
+pub const LISTING_OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub async fn run_quick_operation<T, F>(name: &str, operation: F) -> Result<T, String>
 where
     F: Future<Output = anyhow::Result<T>>,
 {
     run_with_timeout(name, QUICK_OPERATION_TIMEOUT, operation).await
+}
+
+pub async fn run_listing_operation<T, F>(name: &str, operation: F) -> Result<T, String>
+where
+    F: Future<Output = anyhow::Result<T>>,
+{
+    run_with_timeout(name, LISTING_OPERATION_TIMEOUT, operation).await
 }
 
 async fn run_with_timeout<T, F>(name: &str, duration: Duration, operation: F) -> Result<T, String>

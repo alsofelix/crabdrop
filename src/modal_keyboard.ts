@@ -80,25 +80,21 @@ export function setupModalKeyboardControls(rootDocument: Document = document): v
         event.preventDefault();
         event.stopImmediatePropagation();
         const returnFocusTarget = lastFocusedOutsideModal;
-        const restoresFocus = action === "cancel"
-            || button.id === modal.dataset.modalCancel;
         button.click();
 
-        if (restoresFocus) {
-            queueMicrotask(() => {
-                if (!modal.classList.contains("hidden")) {
-                    return;
-                }
+        queueMicrotask(() => {
+            if (!modal.classList.contains("hidden")) {
+                return;
+            }
 
-                const canRestorePreviousFocus = returnFocusTarget?.isConnected
-                    && !returnFocusTarget.closest(".hidden")
-                    && !returnFocusTarget.matches(":disabled");
-                const browserScreen = rootDocument.getElementById("browser-screen");
-                const fallback = browserScreen?.classList.contains("hidden")
-                    ? null
-                    : rootDocument.getElementById("file-list");
-                (canRestorePreviousFocus ? returnFocusTarget : fallback)?.focus();
-            });
-        }
+            const canRestorePreviousFocus = returnFocusTarget?.isConnected
+                && !returnFocusTarget.closest(".hidden")
+                && !returnFocusTarget.matches(":disabled");
+            const browserScreen = rootDocument.getElementById("browser-screen");
+            const fallback = browserScreen?.classList.contains("hidden")
+                ? null
+                : rootDocument.getElementById("file-list");
+            (canRestorePreviousFocus ? returnFocusTarget : fallback)?.focus();
+        });
     });
 }

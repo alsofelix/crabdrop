@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::crypto::{decrypt_chunk, derive_key};
-use crate::operation::run_quick_operation;
+use crate::operation::{run_listing_operation, run_quick_operation};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, metadata, types};
@@ -48,7 +48,7 @@ pub async fn list_files(
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    run_quick_operation("Listing files", client.list_dir(prefix)).await
+    run_listing_operation("Listing files", client.list_dir(prefix)).await
 }
 
 #[tauri::command]
@@ -321,14 +321,16 @@ pub async fn download_file(
     let total_bytes = upper.unwrap_or(lower);
     let mut body = file.into_async_read();
 
-    let file_path = get_unique_path(&download_dir, filename);
+    let file_path = get_unique_path(&download_dir, &resolved_filename);
     let temp_path =
         file_path.with_extension(match file_path.extension().and_then(|e| e.to_str()) {
             Some(ext) => format!("{ext}.crabdroptemp"),
             None => String::from("crabdroptemp"),
         });
 
-    let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
+    let file = tokio::fs::File::create(&temp_path)
+        .await
+        .map_err(|e| e.to_string())?;
     app.emit(
         "download_start",
         serde_json::json!({
@@ -339,7 +341,7 @@ pub async fn download_file(
     .ok();
 
     let download_result: Result<u64, String> = async {
-        let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
+        let mut writer = tokio::io::BufWriter::new(file);
         let mut buffer = vec![0u8; 1024 * 1024];
         let mut downloaded: u64 = 0;
         let mut buf_decrypt: Vec<u8> = Vec::new();
@@ -419,7 +421,7 @@ pub async fn download_file(
         }
     };
 
-    if let Err(error) = std::fs::rename(&temp_path, &file_path) {
+    if let Err(error) = tokio::fs::rename(&temp_path, &file_path).await {
         tokio::fs::remove_file(&temp_path).await.ok();
         return Err(error.to_string());
     }

@@ -3,6 +3,7 @@ import {listen} from "@tauri-apps/api/event";
 import {setupModalKeyboardControls} from "./modal_keyboard";
 import {
     type AppScreen,
+    type CredentialFieldState,
     type CredentialRemovalKind,
     type StatusMessageType,
     determineStartupDestination,
@@ -46,8 +47,17 @@ function showStatusMessage(message: string, type: StatusMessageType = "error", d
     container.appendChild(el);
 
     setTimeout(() => {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            el.remove();
+            return;
+        }
+
         el.classList.add("status-message-out");
-        el.addEventListener("animationend", () => el.remove());
+        const removalFallback = setTimeout(() => el.remove(), 250);
+        el.addEventListener("animationend", () => {
+            clearTimeout(removalFallback);
+            el.remove();
+        }, {once: true});
     }, durationMs);
 }
 
@@ -110,6 +120,7 @@ let pendingEncryptedCopyDownload: File | null = null;
 let pendingDownloadAllFiles: File[] = [];
 let batchDownloadState: BatchDownloadState | null = null;
 let downloadCompletionTimer: ReturnType<typeof setTimeout> | null = null;
+const downloadIdleResolvers = new Set<() => void>();
 
 interface StorageConfig {
     endpoint: string;
@@ -287,7 +298,12 @@ async function init() {
 }
 
 async function downloadFile(file: File, allowEncryptedCopy = false): Promise<boolean> {
-    if (downloadState.active) return false;
+    if (downloadState.active) {
+        if (batchDownloadState === null) {
+            showStatusMessage("Wait for the current download to finish.", "warning");
+        }
+        return false;
+    }
     if (requiresEncryptedCopyConfirmation(file.likelyEncrypted, allowEncryptedCopy)) {
         showEncryptedCopyDownloadPrompt(file);
         return false;
@@ -379,14 +395,30 @@ function hideDownloadAllConfirmation(): void {
 }
 
 async function waitForDownloadIdle(): Promise<void> {
-    const deadline = performance.now() + 2000;
-    while (downloadState.active && performance.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 25));
-    }
-    if (downloadState.active) {
-        clearCurrentDownloadState();
-        updateDownloadUI();
-    }
+    if (!downloadState.active) return;
+
+    await new Promise<void>(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            downloadIdleResolvers.delete(finish);
+            clearTimeout(timeout);
+            resolve();
+        };
+        const timeout = setTimeout(() => {
+            if (downloadState.active) {
+                clearCurrentDownloadState();
+                updateDownloadUI();
+            }
+            finish();
+        }, 2000);
+
+        downloadIdleResolvers.add(finish);
+        if (!downloadState.active) {
+            finish();
+        }
+    });
 }
 
 async function runDownloadAll(files: File[]): Promise<void> {
@@ -401,29 +433,33 @@ async function runDownloadAll(files: File[]): Promise<void> {
         overlayDismissed: false,
     };
     batchDownloadState = state;
-    showDownloadOverlay();
-    updateDownloadUI();
     let completed = 0;
     let failed = 0;
 
-    for (let index = 0; index < files.length; index++) {
-        const file = files[index];
-        const succeeded = await downloadFile(file, file.likelyEncrypted);
-        if (succeeded) {
-            completed++;
-        } else {
-            failed++;
-        }
-        await waitForDownloadIdle();
-        state.processed = index + 1;
+    try {
+        showDownloadOverlay();
         updateDownloadUI();
-    }
 
-    await hideCompletedDownloadAfterDelay(() => {
+        for (let index = 0; index < files.length; index++) {
+            const file = files[index];
+            const succeeded = await downloadFile(file, file.likelyEncrypted);
+            if (succeeded) {
+                completed++;
+            } else {
+                failed++;
+            }
+            await waitForDownloadIdle();
+            state.processed = index + 1;
+            updateDownloadUI();
+        }
+
+        await hideCompletedDownloadAfterDelay(() => {
+            resetDownloadProgress();
+            document.getElementById("download-title")!.textContent = "Downloading";
+        });
+    } finally {
         batchDownloadState = null;
-        resetDownloadProgress();
-        document.getElementById("download-title")!.textContent = "Downloading";
-    });
+    }
 
     const completionAlert = getDownloadAllCompletionAlert(files.length, completed, failed);
     if (completionAlert !== null) {
@@ -816,6 +852,15 @@ function clearCurrentDownloadState(): void {
         downloadedBytes: 0,
         totalBytes: 0,
     };
+    notifyDownloadIdle();
+}
+
+function notifyDownloadIdle(): void {
+    const resolvers = [...downloadIdleResolvers];
+    downloadIdleResolvers.clear();
+    for (const resolve of resolvers) {
+        resolve();
+    }
 }
 
 function cleanupFailedDownload(): void {
@@ -1047,6 +1092,7 @@ function setupDownloadEvents() {
         updateDownloadUI();
         if (batchDownloadState !== null) {
             downloadState.active = false;
+            notifyDownloadIdle();
         } else {
             downloadCompletionTimer = setTimeout(resetDownloadProgress, 1000);
         }
@@ -1135,7 +1181,7 @@ function hideContextMenu(): void {
 function showBackgroundContextMenu(event: ContextMenuPosition, focusButton = false): void {
     const menu = document.getElementById("background-context-menu")!;
     const button = document.getElementById("ctx-download-all") as HTMLButtonElement;
-    const files = selectDownloadAllFiles(currentFiles);
+    const files = selectDownloadAllFiles(displayedFiles);
     const unavailable = files.length === 0 || downloadState.active || batchDownloadState !== null;
 
     button.disabled = unavailable;
@@ -1165,7 +1211,7 @@ function setupContextMenu(): void {
         }
 
         hideContextMenu();
-        const isBrowserBackground = target.closest("#browser-screen")
+        const isBrowserBackground = target.closest(".explorer-panel")
             && !target.closest("input, textarea, select, button, a");
         if (!isBrowserBackground) {
             hideBackgroundContextMenu();
@@ -1219,7 +1265,7 @@ function setupContextMenu(): void {
     });
 
     document.getElementById("ctx-download-all")?.addEventListener("click", () => {
-        const files = selectDownloadAllFiles(currentFiles);
+        const files = selectDownloadAllFiles(displayedFiles);
         hideBackgroundContextMenu();
         showDownloadAllConfirmation(files);
     });
@@ -1254,6 +1300,11 @@ function createFileItem(file: File, index: number): HTMLElement {
         const warningIcon = document.createElement("span");
         warningIcon.className = "likely-encrypted-icon";
         warningIcon.textContent = "⚠";
+        warningIcon.setAttribute("role", "img");
+        warningIcon.setAttribute(
+            "aria-label",
+            "Likely encrypted. The current passphrase cannot decrypt this file.",
+        );
         const tooltip = document.createElement("span");
         tooltip.className = "likely-encrypted-tooltip";
         tooltip.id = `likely-encrypted-tooltip-${index}`;
@@ -1345,7 +1396,7 @@ async function loadConfig(connectionError: string | null = null): Promise<void> 
 function applyCredentialFieldState(
     inputId: string,
     clearButtonId: string,
-    state: ReturnType<typeof getSecretKeyFieldState>,
+    state: CredentialFieldState,
 ): void {
     const input = document.getElementById(inputId) as HTMLInputElement;
     input.value = "";
@@ -1388,7 +1439,14 @@ function setupEncryptConfirmModal(): void {
     const toggle = document.getElementById("encrypt-toggle") as HTMLInputElement;
 
     uploadBtn.addEventListener("click", async () => {
-        const hasPassphrase = await invoke<boolean>("has_encrypted_password");
+        let hasPassphrase: boolean;
+        try {
+            hasPassphrase = await invoke<boolean>("has_encrypted_password");
+        } catch (error) {
+            console.error("Encryption check failed:", error);
+            showStatusMessage(String(error), "error", 8000);
+            return;
+        }
         if (toggle.checked && !hasPassphrase) {
             showStatusMessage("Set an encryption passphrase in Settings before enabling encryption.", "error", 5 * 1000);
             await updateEncryptionAvailability();
@@ -1419,7 +1477,13 @@ async function updateEncryptionAvailability(): Promise<void> {
     const toggle = document.getElementById("encrypt-toggle") as HTMLInputElement;
     const label = document.getElementById("encrypt-toggle-label")!;
     const notice = document.getElementById("encrypt-unavailable")!;
-    const hasPassphrase = await invoke<boolean>("has_encrypted_password");
+    let hasPassphrase = false;
+    try {
+        hasPassphrase = await invoke<boolean>("has_encrypted_password");
+    } catch (error) {
+        console.error("Encryption check failed:", error);
+        showStatusMessage(String(error), "error", 8000);
+    }
 
     toggle.disabled = !hasPassphrase;
     if (!hasPassphrase) {

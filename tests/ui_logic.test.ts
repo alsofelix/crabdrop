@@ -97,6 +97,10 @@ test("errors use plain bottom status text instead of notification cards", () => 
         className: "status-message status-message-error",
         role: "alert",
     });
+    assert.deepEqual(getStatusMessagePresentation("warning"), {
+        className: "status-message status-message-warning",
+        role: "status",
+    });
 });
 
 test("browser status messages use the area directly below the file list", () => {
@@ -198,6 +202,16 @@ test("cleared credential fields return to their defaults and passphrases stay op
         placeholder: "Encryption passphrase (optional)",
         required: false,
         showClear: false,
+    });
+    assert.deepEqual(getSecretKeyFieldState(true), {
+        placeholder: "Saved in Keychain (leave blank to keep)",
+        required: false,
+        showClear: true,
+    });
+    assert.deepEqual(getPassphraseFieldState(true), {
+        placeholder: "Saved (leave blank to keep)",
+        required: false,
+        showClear: true,
     });
 });
 
@@ -305,6 +319,11 @@ test("download all reports partial failures as a bottom error", () => {
     assert.equal(getDownloadAllCompletionAlert(4, 4, 0), null);
     assert.deepEqual(getDownloadAllCompletionAlert(4, 3, 1), {
         message: "Downloaded 3 of 4 files. 1 failed.",
+        type: "error",
+        durationMs: 6000,
+    });
+    assert.deepEqual(getDownloadAllCompletionAlert(1, 0, 1), {
+        message: "Downloaded 0 of 1 file. 1 failed.",
         type: "error",
         durationMs: 6000,
     });

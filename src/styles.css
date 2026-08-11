@@ -121,7 +121,11 @@ body {
 .input-clear:focus-visible {
     background: transparent;
     color: #ff6b35;
-    outline: none;
+}
+
+.input-clear:focus-visible {
+    outline: 2px solid #ffb347;
+    outline-offset: 2px;
 }
 
 .error {
@@ -131,7 +135,7 @@ body {
     font-weight: 400;
     line-height: 1.3;
     text-align: center;
-    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 #btn-connect {
@@ -423,13 +427,28 @@ header h1 {
     margin-top: 24px;
 }
 
+#delete-confirm-modal .modal-content,
+#encrypt-confirm-modal .modal-content,
+.share-modal-content,
+.credential-removal-content,
+.encrypted-copy-download-content,
+.download-all-content {
+    width: min(var(--modal-width), calc(100vw - 40px));
+}
+
 #delete-confirm-modal .modal-content {
-    width: min(560px, calc(100vw - 40px));
+    --modal-width: 560px;
 }
 
 #encrypt-confirm-modal .modal-content,
-.share-modal-content {
-    width: min(440px, calc(100vw - 40px));
+.share-modal-content,
+.credential-removal-content {
+    --modal-width: 440px;
+}
+
+.encrypted-copy-download-content,
+.download-all-content {
+    --modal-width: 480px;
 }
 
 #delete-confirm-message {
@@ -460,10 +479,6 @@ header h1 {
     margin: 16px 0 0;
 }
 
-.credential-removal-content {
-    max-width: 440px;
-}
-
 .credential-removal-content p {
     color: #ccc;
     line-height: 1.45;
@@ -473,20 +488,16 @@ header h1 {
     margin-top: 24px;
 }
 
-.encrypted-copy-download-content {
-    width: min(480px, calc(100vw - 40px));
-}
-
 .encrypted-copy-download-content > p,
 .download-all-content > p {
     color: #ccc;
     line-height: 1.45;
 }
 
-.modal-filename {
+.encrypted-copy-download-content > p.modal-filename {
     margin-top: 14px;
     overflow: hidden;
-    color: #888 !important;
+    color: #888;
     font-size: 0.85rem;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -496,13 +507,9 @@ header h1 {
     margin-top: 24px;
 }
 
-.download-all-content {
-    width: min(480px, calc(100vw - 40px));
-}
-
-.download-all-warning {
+.download-all-content > p.download-all-warning {
     margin-top: 12px;
-    color: #ffb347 !important;
+    color: #ffb347;
     font-size: 0.85rem;
 }
 
@@ -1034,7 +1041,8 @@ header h1 {
 
 .file-item .likely-encrypted-icon:focus-visible {
     color: #ff6b35;
-    outline: none;
+    outline: 2px solid #ffb347;
+    outline-offset: 2px;
 }
 
 .share-encrypted-notice {
@@ -1080,7 +1088,9 @@ header h1 {
     text-align: center;
     animation: status-message-in 0.15s ease-out;
     max-width: min(900px, calc(100vw - 32px));
-    word-break: break-word;
+    overflow-wrap: anywhere;
+    pointer-events: auto;
+    user-select: text;
 }
 
 .status-message-error {
@@ -1103,4 +1113,16 @@ header h1 {
 @keyframes status-message-out {
     from { opacity: 1; }
     to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .file-item .likely-encrypted-tooltip {
+        transform: none;
+        transition: none;
+    }
+
+    .status-message,
+    .status-message-out {
+        animation: none;
+    }
 }

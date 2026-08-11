@@ -82,7 +82,7 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                if is_folder_marker_key(&key) {
+                if is_folder_marker_key(&key) && file.size() == Some(0) {
                     continue;
                 }
 
@@ -407,7 +407,13 @@ impl S3Client {
             .await
         {
             Ok(file) => file,
-            Err(error) if matches!(error.code(), Some("NoSuchKey" | "NotFound" | "404")) => {
+            Err(error)
+                if matches!(error.code(), Some("NoSuchKey" | "NotFound" | "404"))
+                    || error
+                        .raw_response()
+                        .map(|response| response.status().as_u16() == 404)
+                        .unwrap_or(false) =>
+            {
                 return Ok(None);
             }
             Err(error) => {
