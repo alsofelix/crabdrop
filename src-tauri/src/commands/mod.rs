@@ -110,7 +110,7 @@ pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> 
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    run_quick_operation("Connection check", client.list_dir("")).await?;
+    run_quick_operation("Connection check", client.test_connection()).await?;
     Ok(())
 }
 

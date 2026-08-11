@@ -50,6 +50,17 @@ impl S3Client {
         })
     }
 
+    pub async fn test_connection(&self) -> anyhow::Result<()> {
+        self.client
+            .list_objects_v2()
+            .bucket(&self.bucket_name)
+            .max_keys(1)
+            .send()
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("checking the connection", &error)))?;
+        Ok(())
+    }
+
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
         let mut vector: Vec<File> = Vec::new();
         let mut continuation_token: Option<String> = None;
