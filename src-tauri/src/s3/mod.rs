@@ -61,6 +61,10 @@ impl S3Client {
         Ok(())
     }
 
+    pub fn shares_connection_state(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.metadata_deleted, &other.metadata_deleted)
+    }
+
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
         let mut vector: Vec<File> = Vec::new();
         let mut continuation_token: Option<String> = None;
@@ -488,7 +492,8 @@ impl S3Client {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 if !delete_objects.is_empty() {
-                    self.client
+                    let result = self
+                        .client
                         .delete_objects()
                         .bucket(&self.bucket_name)
                         .delete(
@@ -501,6 +506,24 @@ impl S3Client {
                         .map_err(|error| {
                             anyhow!(friendly_sdk_error("deleting a folder", &error))
                         })?;
+
+                    if !result.errors().is_empty() {
+                        let failures = result
+                            .errors()
+                            .iter()
+                            .map(|error| {
+                                let key = error.key().unwrap_or("<unknown key>");
+                                match error.code() {
+                                    Some(code) => format!("{key} ({code})"),
+                                    None => key.to_string(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(anyhow!(
+                            "Storage service failed to delete folder objects: {failures}"
+                        ));
+                    }
                 }
             }
 

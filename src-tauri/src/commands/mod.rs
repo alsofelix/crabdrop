@@ -453,10 +453,19 @@ pub async fn delete_file(
     }
 
     if is_metadata {
+        let client = {
+            let guard = state.lock().await;
+            guard.as_ref().ok_or("Not configured")?.clone()
+        };
+        run_quick_operation("Deleting metadata", client.delete_metadata()).await?;
+
         let mut guard = state.lock().await;
-        let client = guard.as_ref().ok_or("Not configured")?;
-        client.delete_metadata().await.map_err(|e| e.to_string())?;
-        *guard = None;
+        if guard
+            .as_ref()
+            .is_some_and(|current| current.shares_connection_state(&client))
+        {
+            *guard = None;
+        }
         return Ok(());
     }
 
