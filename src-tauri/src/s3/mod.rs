@@ -101,7 +101,13 @@ impl S3Client {
                     continue;
                 }
 
-                let raw_name = key.split("/").last().unwrap_or(&key).to_string();
+                let raw_name = key
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or(&key)
+                    .to_string();
                 let is_metadata = is_crabdrop_metadata_key(&key);
                 let encrypted = if is_metadata {
                     false
