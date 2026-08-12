@@ -34,7 +34,7 @@ pub struct S3Client {
     client: Client,
     bucket_name: String,
     meta_lock: Arc<Mutex<()>>,
-    metadata_deleted: Arc<AtomicBool>,
+    metadata_writes_closed: Arc<AtomicBool>,
 }
 
 impl S3Client {
@@ -46,7 +46,7 @@ impl S3Client {
             client,
             bucket_name: config.storage.bucket.clone(),
             meta_lock: Arc::new(Mutex::new(())),
-            metadata_deleted: Arc::new(AtomicBool::new(false)),
+            metadata_writes_closed: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -62,7 +62,12 @@ impl S3Client {
     }
 
     pub fn shares_connection_state(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.metadata_deleted, &other.metadata_deleted)
+        Arc::ptr_eq(&self.metadata_writes_closed, &other.metadata_writes_closed)
+    }
+
+    pub async fn retire(&self) {
+        let _guard = self.meta_lock.lock().await;
+        self.metadata_writes_closed.store(true, Ordering::Release);
     }
 
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
@@ -398,9 +403,9 @@ impl S3Client {
 
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
         let _guard = self.meta_lock.lock().await;
-        if self.metadata_deleted.load(Ordering::Acquire) {
+        if self.metadata_writes_closed.load(Ordering::Acquire) {
             return Err(anyhow!(
-                "Connection closed because the Crabdrop metadata file was deleted."
+                "Connection changed or Crabdrop metadata was deleted before the filename map could be updated."
             ));
         }
         let metadata = self.get_or_create_metadata(password).await?;
@@ -413,8 +418,13 @@ impl S3Client {
 
     pub async fn delete_metadata(&self) -> anyhow::Result<()> {
         let _guard = self.meta_lock.lock().await;
+        if self.metadata_writes_closed.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Connection changed before Crabdrop metadata could be deleted."
+            ));
+        }
         self.delete_file(CRABDROP_METADATA_FILE_NAME).await?;
-        self.metadata_deleted.store(true, Ordering::Release);
+        self.metadata_writes_closed.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -464,6 +474,12 @@ impl S3Client {
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<()> {
+        if CRABDROP_METADATA_FILE_NAME.starts_with(prefix) {
+            return Err(anyhow!(
+                "Crabdrop metadata must be deleted as a single file."
+            ));
+        }
+
         let mut continuation_token: Option<String> = None;
 
         loop {
@@ -773,6 +789,10 @@ impl S3Client {
     }
 
     pub async fn gen_presigned_url(&self, key: &str, expiry_secs: u64) -> anyhow::Result<String> {
+        if is_crabdrop_metadata_key(key) {
+            return Err(anyhow!("Crabdrop metadata cannot be shared."));
+        }
+
         let config = PresigningConfig::expires_in(Duration::from_secs(expiry_secs))?;
 
         let url = self
@@ -808,4 +828,60 @@ fn get_credentials(config: &Config) -> anyhow::Result<aws_sdk_s3::config::Config
     }
 
     Ok(configuration.build())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{CredentialsConfig, StorageConfig};
+
+    fn test_client() -> S3Client {
+        S3Client::new(&Config {
+            storage: StorageConfig {
+                endpoint: "http://localhost:9000".to_string(),
+                bucket: "test-bucket".to_string(),
+                region: "us-east-1".to_string(),
+            },
+            credentials: CredentialsConfig {
+                access_key_id: "test-access-key".to_string(),
+                secret_access_key: "test-secret-key".to_string(),
+                encryption_passphrase: "test-passphrase".to_string(),
+            },
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn retiring_a_client_closes_metadata_writes_for_all_clones() {
+        let client = test_client();
+        let clone = client.clone();
+
+        client.retire().await;
+
+        assert!(clone.metadata_writes_closed.load(Ordering::Acquire));
+        assert_eq!(
+            clone.delete_metadata().await.unwrap_err().to_string(),
+            "Connection changed before Crabdrop metadata could be deleted."
+        );
+    }
+
+    #[tokio::test]
+    async fn broad_prefix_deletion_cannot_remove_metadata() {
+        let error = test_client().delete_prefix("").await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Crabdrop metadata must be deleted as a single file."
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_cannot_be_shared() {
+        let error = test_client()
+            .gen_presigned_url(CRABDROP_METADATA_FILE_NAME, 60)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "Crabdrop metadata cannot be shared.");
+    }
 }

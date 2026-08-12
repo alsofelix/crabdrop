@@ -287,11 +287,11 @@ async function init() {
     const destination = await determineStartupDestination(
         isConfigured,
         () => invoke<void>("test_connection"),
+        () => loadFiles(""),
     );
 
     if (destination.screen === "browser") {
         showScreen("browser");
-        await loadFiles("");
     } else {
         await loadConfig(destination.error);
     }

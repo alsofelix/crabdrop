@@ -175,7 +175,7 @@ test("opening settings invalidates filenames decrypted with the previous passphr
 test("a failed startup connection returns the user to settings with the error", async () => {
     const destination = await determineStartupDestination(true, async () => {
         throw new Error("Bucket not found");
-    });
+    }, async () => true);
 
     assert.deepEqual(destination, {
         screen: "setup",
@@ -183,11 +183,28 @@ test("a failed startup connection returns the user to settings with the error", 
     });
 });
 
-test("a successful startup connection opens the browser", async () => {
-    const destination = await determineStartupDestination(true, async () => undefined);
+test("a successful startup connection and listing open the browser", async () => {
+    const destination = await determineStartupDestination(
+        true,
+        async () => undefined,
+        async () => true,
+    );
 
     assert.deepEqual(destination, {
         screen: "browser",
+        error: null,
+    });
+});
+
+test("a failed initial listing keeps startup in settings", async () => {
+    const destination = await determineStartupDestination(
+        true,
+        async () => undefined,
+        async () => false,
+    );
+
+    assert.deepEqual(destination, {
+        screen: "setup",
         error: null,
     });
 });

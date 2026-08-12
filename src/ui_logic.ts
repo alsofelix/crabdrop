@@ -343,6 +343,7 @@ export async function runDownloadWithFailureCleanup(
 export async function determineStartupDestination(
     isConfigured: boolean,
     testConnection: () => Promise<void>,
+    loadInitialFiles: () => Promise<boolean>,
 ): Promise<StartupDestination> {
     if (!isConfigured) {
         return {screen: "setup", error: null};
@@ -350,6 +351,9 @@ export async function determineStartupDestination(
 
     try {
         await testConnection();
+        if (!await loadInitialFiles()) {
+            return {screen: "setup", error: null};
+        }
         return {screen: "browser", error: null};
     } catch (error) {
         return {screen: "setup", error: String(error)};

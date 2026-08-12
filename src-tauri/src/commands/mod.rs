@@ -38,6 +38,19 @@ fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
     }
 }
 
+fn validate_download_filename(filename: &str) -> Result<&str, String> {
+    let mut components = Path::new(filename).components();
+    let is_single_normal_component =
+        matches!(components.next(), Some(std::path::Component::Normal(_)))
+            && components.next().is_none();
+
+    if !is_single_normal_component || filename.contains('/') || filename.contains('\\') {
+        return Err("Storage metadata returned an unsafe download filename.".to_string());
+    }
+
+    Ok(filename)
+}
+
 #[tauri::command]
 pub async fn list_files(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
@@ -85,6 +98,9 @@ pub async fn save_config(
         .update_encryption_passphrase(encryption_passphrase);
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
+    if let Some(previous) = guard.as_ref().cloned() {
+        previous.retire().await;
+    }
     *guard = Some(client);
     Ok(())
 }
@@ -155,6 +171,9 @@ pub async fn clear_saved_secret_access_key(
     Config::remove_saved_secret_access_key().map_err(|e| e.to_string())?;
 
     let mut guard = state.lock().await;
+    if let Some(client) = guard.as_ref().cloned() {
+        client.retire().await;
+    }
     *guard = None;
     Ok(())
 }
@@ -315,6 +334,7 @@ pub async fn download_file(
     } else {
         (filename.to_string(), None)
     };
+    let resolved_filename = validate_download_filename(&resolved_filename)?.to_string();
 
     let file = client.download_file(key).await.map_err(|e| e.to_string())?;
     let (lower, upper) = file.size_hint();
@@ -508,4 +528,35 @@ pub async fn has_encrypted_password() -> Result<bool, String> {
     let config = Config::load().map_err(|e| e.to_string())?;
 
     Ok(config.encryption_pass_exists())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_download_filename;
+
+    #[test]
+    fn download_filenames_must_stay_inside_the_download_directory() {
+        assert_eq!(
+            validate_download_filename("report.pdf").unwrap(),
+            "report.pdf"
+        );
+        assert_eq!(
+            validate_download_filename("résumé.pdf").unwrap(),
+            "résumé.pdf"
+        );
+
+        for unsafe_name in [
+            "",
+            ".",
+            "..",
+            "../report.pdf",
+            "folder/report.pdf",
+            r"..\report.pdf",
+        ] {
+            assert_eq!(
+                validate_download_filename(unsafe_name).unwrap_err(),
+                "Storage metadata returned an unsafe download filename."
+            );
+        }
+    }
 }
