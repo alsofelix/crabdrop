@@ -43,8 +43,31 @@ fn validate_download_filename(filename: &str) -> Result<&str, String> {
     let is_single_normal_component =
         matches!(components.next(), Some(std::path::Component::Normal(_)))
             && components.next().is_none();
+    let has_windows_reserved_character = filename.chars().any(|character| {
+        character < ' ' || matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*')
+    });
+    let has_windows_unsafe_suffix = filename.ends_with([' ', '.']);
+    let windows_basename = filename
+        .trim_end_matches([' ', '.'])
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let is_windows_device = matches!(windows_basename.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            windows_basename.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
+        });
 
-    if !is_single_normal_component || filename.contains('/') || filename.contains('\\') {
+    if !is_single_normal_component
+        || filename.contains('/')
+        || filename.contains('\\')
+        || has_windows_reserved_character
+        || has_windows_unsafe_suffix
+        || is_windows_device
+    {
         return Err("Storage metadata returned an unsafe download filename.".to_string());
     }
 
@@ -552,6 +575,17 @@ mod tests {
             "../report.pdf",
             "folder/report.pdf",
             r"..\report.pdf",
+            "report.pdf:payload",
+            "CON",
+            "con.txt",
+            "PRN.",
+            "NUL .txt",
+            "COM1",
+            "lpt9.log",
+            "report.",
+            "report ",
+            "bad?.txt",
+            "control\u{001f}.txt",
         ] {
             assert_eq!(
                 validate_download_filename(unsafe_name).unwrap_err(),

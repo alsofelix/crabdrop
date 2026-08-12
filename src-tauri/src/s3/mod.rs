@@ -29,6 +29,14 @@ const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
 const CHUNKS_AT_A_TIME: usize = 6;
 
+fn final_non_empty_key_component(key: &str) -> &str {
+    key.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|component| !component.is_empty())
+        .unwrap_or(key)
+}
+
 #[derive(Clone)]
 pub struct S3Client {
     client: Client,
@@ -106,13 +114,7 @@ impl S3Client {
                     continue;
                 }
 
-                let raw_name = key
-                    .trim_end_matches('/')
-                    .rsplit('/')
-                    .next()
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or(&key)
-                    .to_string();
+                let raw_name = final_non_empty_key_component(&key).to_string();
                 let is_metadata = is_crabdrop_metadata_key(&key);
                 let encrypted = if is_metadata {
                     false
@@ -158,11 +160,7 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                let encrypted_step = key
-                    .split("/")
-                    .last()
-                    .ok_or(anyhow::anyhow!("Error on parsing"))?
-                    .to_string();
+                let encrypted_step = final_non_empty_key_component(&key).to_string();
 
                 let encrypted = match metadata.as_deref() {
                     Some(metadata) => metadata::is_in_meta(metadata, &encrypted_step)?,
@@ -170,12 +168,7 @@ impl S3Client {
                 };
 
                 let f = File {
-                    name: key
-                        .trim_end_matches("/")
-                        .split("/")
-                        .last()
-                        .unwrap_or(&key)
-                        .to_string(),
+                    name: final_non_empty_key_component(&key).to_string(),
                     key,
                     size: None,
                     is_folder: true,
@@ -335,7 +328,7 @@ impl S3Client {
 
                 Ok(metadata)
             }
-            None => self.create_metadata(password, None).await,
+            None => self.create_metadata_locked(password, None).await,
         }
     }
 
@@ -367,7 +360,7 @@ impl S3Client {
         }
     }
 
-    pub async fn create_metadata(
+    async fn create_metadata_locked(
         &self,
         password: &[u8],
         data: Option<&[u8]>,
@@ -412,7 +405,8 @@ impl S3Client {
 
         let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
 
-        self.create_metadata(password, Some(&new_data)).await?;
+        self.create_metadata_locked(password, Some(&new_data))
+            .await?;
         Ok(())
     }
 
@@ -849,6 +843,18 @@ mod tests {
             },
         })
         .unwrap()
+    }
+
+    #[test]
+    fn slash_suffixed_keys_use_the_final_non_empty_component() {
+        assert_eq!(
+            final_non_empty_key_component("parent/encrypted-folder/"),
+            "encrypted-folder"
+        );
+        assert_eq!(
+            final_non_empty_key_component("parent/report.pdf"),
+            "report.pdf"
+        );
     }
 
     #[tokio::test]
