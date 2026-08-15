@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod crypto;
 mod metadata;
+mod operation;
 mod s3;
 mod types;
 
@@ -28,11 +29,14 @@ pub fn run() {
             commands::test_connection,
             commands::get_config,
             commands::upload_folder,
+            commands::validate_encrypted_upload,
             commands::upload_path,
             commands::download_file,
             commands::delete_file,
             commands::generate_presigned_url,
             commands::has_encrypted_password,
+            commands::clear_saved_secret_access_key,
+            commands::clear_saved_encryption_passphrase,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

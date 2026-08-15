@@ -20,9 +20,11 @@
                 <input
                         type="text"
                         id="endpoint"
+                        aria-describedby="endpoint-warning"
                         placeholder="https://s3.us-east-1.amazonaws.com"
                 />
                 <span class="hint">Leave empty for AWS (uses region), or enter custom endpoint for MinIO/R2</span>
+                <span id="endpoint-warning" class="field-warning hidden" role="alert"></span>
             </div>
 
             <div class="form-group">
@@ -30,7 +32,7 @@
                 <input
                         type="text"
                         id="bucket"
-                        placeholder="my-bucket"
+                        placeholder="amzn-s3-demo-bucket"
                         required
                 />
             </div>
@@ -50,37 +52,54 @@
                 <input
                         type="text"
                         id="access-key"
-                        placeholder="AKIA..."
+                        placeholder="AKIAIOSFODNN7EXAMPLE"
                         required
                 />
             </div>
 
             <div class="form-group">
                 <label for="secret-key">Secret Access Key</label>
-                <input
-                        type="password"
-                        id="secret-key"
-                        placeholder="••••••••"
-                        required
-                />
+                <div class="input-with-clear">
+                    <input
+                            type="password"
+                            id="secret-key"
+                            placeholder="••••••••"
+                            required
+                    />
+                    <button
+                            type="button"
+                            id="clear-secret-key"
+                            class="input-clear hidden"
+                            aria-label="Remove saved Secret Access Key from Keychain"
+                            title="Remove saved value from Keychain"
+                    >×</button>
+                </div>
             </div>
 
             <div class="form-group">
                 <label for="encryption-passphrase">Encryption Passphrase</label>
-                <input
-                        type="password"
-                        id="encryption-passphrase"
-                        placeholder="Encryption passphrase (make it safe)"
-                        required
-                />
-                <span class="hint">If you select to encrypt your uploads, they will be encrypted using this passphrase.</span>
+                <div class="input-with-clear">
+                    <input
+                            type="password"
+                            id="encryption-passphrase"
+                            placeholder="Encryption passphrase (optional)"
+                    />
+                    <button
+                            type="button"
+                            id="clear-encryption-passphrase"
+                            class="input-clear hidden"
+                            aria-label="Remove saved Encryption Passphrase from Keychain"
+                            title="Remove saved value from Keychain"
+                    >×</button>
+                </div>
+                <span class="hint">Optional. Without a passphrase, uploads can only be unencrypted.</span>
             </div>
-
-            <div id="setup-error" class="error hidden"></div>
 
             <button type="submit" id="btn-connect">
                 Connect
             </button>
+
+            <div id="setup-error" class="error hidden"></div>
         </form>
     </div>
 </main>
@@ -91,7 +110,7 @@
     </header>
 
     <nav class="breadcrumb">
-        <span id="current-path">/</span>
+        <span id="current-path"></span>
     </nav>
 
     <div class="toolbar">
@@ -139,7 +158,20 @@
         </div>
     </div>
 
-    <div id="file-list" class="file-list"></div>
+    <div class="explorer-panel">
+        <div
+                id="file-list"
+                class="file-list"
+                tabindex="0"
+                aria-label="Files. Press Shift+F10 for folder actions."
+        ></div>
+
+        <div
+                id="browser-status-message-container"
+                class="status-message-container browser-status-message-container"
+                aria-live="polite"
+        ></div>
+    </div>
 
 </main>
 
@@ -150,15 +182,24 @@
     </div>
 </div>
 
-<div id="encrypt-confirm-modal" class="modal hidden">
+<div
+        id="encrypt-confirm-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="encrypt-confirm-title"
+        data-modal-primary="encrypt-confirm-upload"
+        data-modal-cancel="encrypt-confirm-cancel"
+>
     <div class="modal-content">
-        <h3>Upload Files</h3>
+        <h3 id="encrypt-confirm-title">Upload Files</h3>
         <p id="encrypt-confirm-count"></p>
         <div id="encrypt-confirm-files" class="encrypt-file-list"></div>
         <div class="encrypt-toggle-row">
             <input type="checkbox" id="encrypt-toggle" />
-            <label for="encrypt-toggle">Encrypt</label>
+            <label id="encrypt-toggle-label" for="encrypt-toggle">Encrypt</label>
         </div>
+        <span id="encrypt-unavailable" class="encrypt-unavailable hidden">Set an encryption passphrase in Settings to enable encrypted uploads.</span>
         <div class="modal-buttons">
             <button id="encrypt-confirm-cancel">Cancel</button>
             <button id="encrypt-confirm-upload">Upload</button>
@@ -166,9 +207,17 @@
     </div>
 </div>
 
-<div id="folder-modal" class="modal hidden">
+<div
+        id="folder-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="folder-modal-title"
+        data-modal-primary="folder-create"
+        data-modal-cancel="folder-cancel"
+>
     <div class="modal-content">
-        <h3>New Folder</h3>
+        <h3 id="folder-modal-title">New Folder</h3>
         <label for="folder-name"></label><input type="text" id="folder-name" placeholder="Folder name"/>
         <div class="modal-buttons">
             <button id="folder-cancel">Cancel</button>
@@ -202,7 +251,7 @@
 <div id="download-overlay" class="upload-overlay hidden">
     <div class="upload-card">
         <div class="upload-header">
-            <span>Downloading</span>
+            <span id="download-title">Downloading</span>
             <button id="download-close" class="upload-close">✕</button>
         </div>
 
@@ -225,10 +274,60 @@
         </div>
     </div>
 </div>
-<div id="delete-confirm-modal" class="modal hidden">
+<div
+        id="encrypted-copy-download-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="encrypted-copy-download-title"
+        aria-describedby="encrypted-copy-download-message"
+        data-modal-primary="encrypted-copy-download-confirm"
+        data-modal-cancel="encrypted-copy-download-cancel"
+>
+    <div class="modal-content encrypted-copy-download-content">
+        <h3 id="encrypted-copy-download-title">Download Encrypted Copy?</h3>
+        <p id="encrypted-copy-download-message"></p>
+        <p id="encrypted-copy-download-filename" class="modal-filename"></p>
+        <div class="modal-buttons">
+            <button id="encrypted-copy-download-cancel">Cancel</button>
+            <button id="encrypted-copy-download-confirm">Download Encrypted Copy</button>
+        </div>
+    </div>
+</div>
+<div
+        id="download-all-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="download-all-title"
+        aria-describedby="download-all-message"
+        data-modal-primary="download-all-confirm"
+        data-modal-cancel="download-all-cancel"
+>
+    <div class="modal-content download-all-content">
+        <h3 id="download-all-title">Download All Files?</h3>
+        <p id="download-all-message"></p>
+        <p id="download-all-warning" class="download-all-warning hidden"></p>
+        <div class="modal-buttons">
+            <button id="download-all-cancel">Cancel</button>
+            <button id="download-all-confirm">Download Files</button>
+        </div>
+    </div>
+</div>
+<div
+        id="delete-confirm-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+        aria-describedby="delete-confirm-message delete-confirm-warning"
+        data-modal-primary="delete-confirm-ok"
+        data-modal-cancel="delete-confirm-cancel"
+>
     <div class="modal-content">
-        <h3>Delete</h3>
+        <h3 id="delete-confirm-title">Delete</h3>
         <p id="delete-confirm-message"></p>
+        <p id="delete-confirm-warning" class="delete-confirm-warning hidden"></p>
         <div class="modal-buttons">
             <button id="delete-confirm-cancel">Cancel</button>
             <button id="delete-confirm-ok" class="btn-danger">Delete</button>
@@ -236,15 +335,45 @@
     </div>
 </div>
 
-<div id="context-menu" class="context-menu hidden">
-    <button id="ctx-download">⬇️ Download</button>
-    <button id="ctx-share">🔗 Share</button>
-    <button id="ctx-delete">🗑️ Delete</button>
+<div
+        id="credential-removal-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credential-removal-title"
+        data-modal-primary="credential-removal-confirm"
+        data-modal-cancel="credential-removal-cancel"
+>
+    <div class="modal-content credential-removal-content">
+        <h3 id="credential-removal-title"></h3>
+        <p id="credential-removal-message"></p>
+        <div class="modal-buttons">
+            <button id="credential-removal-cancel">Cancel</button>
+            <button id="credential-removal-confirm" class="btn-danger">Remove</button>
+        </div>
+    </div>
 </div>
 
-<div id="share-modal" class="modal hidden">
+<div id="context-menu" class="context-menu hidden" role="menu">
+    <button id="ctx-download" role="menuitem">⬇️ Download</button>
+    <button id="ctx-share" role="menuitem">🔗 Share</button>
+    <button id="ctx-delete" role="menuitem">🗑️ Delete</button>
+</div>
+<div id="background-context-menu" class="context-menu hidden" role="menu">
+    <button id="ctx-download-all" role="menuitem">⬇️ Download All Files</button>
+</div>
+
+<div
+        id="share-modal"
+        class="modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-modal-title"
+        data-modal-primary="share-generate"
+        data-modal-cancel="share-cancel"
+>
     <div class="modal-content share-modal-content">
-        <h3>Share File</h3>
+        <h3 id="share-modal-title">Share File</h3>
         <p id="share-filename" class="share-filename"></p>
 
         <div class="form-group">
@@ -262,14 +391,17 @@
             <button id="share-copy">Copy</button>
         </div>
 
-        <div id="share-error" class="error hidden"></div>
-
         <div class="modal-buttons">
             <button id="share-cancel">Cancel</button>
             <button id="share-generate">Generate Link</button>
         </div>
+
+        <div id="share-error" class="error hidden"></div>
     </div>
 </div>
-<div id="alert-container" class="alert-container"></div>
+<div
+        id="global-status-message-container"
+        class="status-message-container global-status-message-container"
+></div>
 </body>
 </html>

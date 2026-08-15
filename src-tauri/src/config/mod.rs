@@ -37,6 +37,30 @@ impl CredentialsConfig {
         self.access_key_id.clear();
         self.secret_access_key.clear();
     }
+
+    pub fn clear_secret_access_key(&mut self) {
+        self.secret_access_key.clear();
+    }
+
+    pub fn clear_encryption_passphrase(&mut self) {
+        self.encryption_passphrase.clear();
+    }
+
+    pub fn update_encryption_passphrase(&mut self, passphrase: Option<String>) {
+        if let Some(passphrase) = passphrase.filter(|value| !value.trim().is_empty()) {
+            self.encryption_passphrase = passphrase;
+        }
+    }
+
+    pub fn encryption_passphrase_for_upload(&self) -> anyhow::Result<&[u8]> {
+        if self.encryption_passphrase.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Set an encryption passphrase in Settings before uploading encrypted files."
+            ));
+        }
+
+        Ok(self.encryption_passphrase.as_bytes())
+    }
 }
 
 impl Config {
@@ -65,9 +89,7 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        if !self.credentials.is_empty() {
-            save_credential_to_keyring(&self.credentials)?;
-        }
+        save_credential_to_keyring(&self.credentials)?;
 
         let content = self.to_toml()?;
         let config_path = get_config_path()?;
@@ -81,6 +103,18 @@ impl Config {
         let content = self.to_toml()?;
         std::fs::write(get_config_path()?, content)?;
         Ok(())
+    }
+
+    pub fn remove_saved_secret_access_key() -> anyhow::Result<()> {
+        let mut config = Self::load()?;
+        config.credentials.clear_secret_access_key();
+        config.save()
+    }
+
+    pub fn remove_saved_encryption_passphrase() -> anyhow::Result<()> {
+        let mut config = Self::load()?;
+        config.credentials.clear_encryption_passphrase();
+        config.save()
     }
 
     pub fn encryption_pass_exists(&self) -> bool {
@@ -144,4 +178,75 @@ fn save_credential_to_keyring(credentials_config: &CredentialsConfig) -> anyhow:
     entry.set_password(&payload)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn example_credentials() -> CredentialsConfig {
+        CredentialsConfig {
+            access_key_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string(),
+            encryption_passphrase: "example-passphrase".to_string(),
+        }
+    }
+
+    #[test]
+    fn clearing_the_secret_key_preserves_other_saved_values() {
+        let mut credentials = example_credentials();
+
+        credentials.clear_secret_access_key();
+
+        assert_eq!(credentials.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+        assert!(credentials.secret_access_key.is_empty());
+        assert_eq!(credentials.encryption_passphrase, "example-passphrase");
+    }
+
+    #[test]
+    fn clearing_the_encryption_passphrase_preserves_s3_credentials() {
+        let mut credentials = example_credentials();
+
+        credentials.clear_encryption_passphrase();
+
+        assert_eq!(credentials.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(
+            credentials.secret_access_key,
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        );
+        assert!(credentials.encryption_passphrase.is_empty());
+    }
+
+    #[test]
+    fn replacing_a_passphrase_only_updates_the_local_credential() {
+        let mut credentials = example_credentials();
+
+        credentials.update_encryption_passphrase(Some("replacement-passphrase".to_string()));
+
+        assert_eq!(credentials.encryption_passphrase, "replacement-passphrase");
+    }
+
+    #[test]
+    fn a_blank_passphrase_keeps_the_saved_credential() {
+        let mut credentials = example_credentials();
+
+        credentials.update_encryption_passphrase(None);
+        credentials.update_encryption_passphrase(Some("   ".to_string()));
+
+        assert_eq!(credentials.encryption_passphrase, "example-passphrase");
+    }
+
+    #[test]
+    fn encrypted_uploads_require_a_configured_passphrase() {
+        let mut credentials = example_credentials();
+        credentials.clear_encryption_passphrase();
+
+        assert_eq!(
+            credentials
+                .encryption_passphrase_for_upload()
+                .unwrap_err()
+                .to_string(),
+            "Set an encryption passphrase in Settings before uploading encrypted files."
+        );
+    }
 }

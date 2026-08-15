@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::crypto::{decrypt_chunk, derive_key};
+use crate::operation::{run_listing_operation, run_quick_operation};
 use crate::s3::S3Client;
 use crate::types::UiConfig;
 use crate::{config, metadata, types};
@@ -37,6 +38,42 @@ fn get_unique_path(dir: &Path, filename: &str) -> PathBuf {
     }
 }
 
+fn validate_download_filename(filename: &str) -> Result<&str, String> {
+    let mut components = Path::new(filename).components();
+    let is_single_normal_component =
+        matches!(components.next(), Some(std::path::Component::Normal(_)))
+            && components.next().is_none();
+    let has_windows_reserved_character = filename.chars().any(|character| {
+        character < ' ' || matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*')
+    });
+    let has_windows_unsafe_suffix = filename.ends_with([' ', '.']);
+    let windows_basename = filename
+        .trim_end_matches([' ', '.'])
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let is_windows_device = matches!(windows_basename.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            windows_basename.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
+        });
+
+    if !is_single_normal_component
+        || filename.contains('/')
+        || filename.contains('\\')
+        || has_windows_reserved_character
+        || has_windows_unsafe_suffix
+        || is_windows_device
+    {
+        return Err("Storage metadata returned an unsafe download filename.".to_string());
+    }
+
+    Ok(filename)
+}
+
 #[tauri::command]
 pub async fn list_files(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
@@ -47,7 +84,7 @@ pub async fn list_files(
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.list_dir(prefix).await.map_err(|e| e.to_string())
+    run_listing_operation("Listing files", client.list_dir(prefix)).await
 }
 
 #[tauri::command]
@@ -67,10 +104,6 @@ pub async fn save_config(
     encryption_passphrase: Option<String>,
 ) -> Result<(), String> {
     let mut config_curr = config::Config::load().map_err(|e| e.to_string())?;
-    let client = {
-        let guard = state.lock().await;
-        guard.as_ref().cloned()
-    };
 
     config_curr.storage.endpoint = endpoint;
     config_curr.storage.bucket = bucket;
@@ -81,24 +114,16 @@ pub async fn save_config(
         config_curr.credentials.secret_access_key = x;
     }
 
-    if let Some(x) = encryption_passphrase.filter(|x1| !x1.trim().is_empty()) {
-        if let Some(client) = &client {
-            if client.meta_file_exists().await {
-                client
-                    .re_encrypt_metadata(
-                        x.as_bytes(),
-                        config_curr.credentials.encryption_passphrase.as_bytes(),
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-        }
+    let client = S3Client::new(&config_curr).map_err(|e| e.to_string())?;
 
-        config_curr.credentials.encryption_passphrase = x;
-    }
+    config_curr
+        .credentials
+        .update_encryption_passphrase(encryption_passphrase);
     config_curr.save().map_err(|e| e.to_string())?;
     let mut guard = state.lock().await;
-    let client = S3Client::new(&config_curr).map_err(|e1| e1.to_string())?;
+    if let Some(previous) = guard.as_ref().cloned() {
+        previous.retire().await;
+    }
     *guard = Some(client);
     Ok(())
 }
@@ -124,7 +149,7 @@ pub async fn test_connection(state: State<'_, Arc<Mutex<Option<S3Client>>>>) -> 
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.list_dir("").await.map_err(|e| e.to_string())?;
+    run_quick_operation("Connection check", client.test_connection()).await?;
     Ok(())
 }
 
@@ -138,8 +163,47 @@ pub async fn upload_folder(
         guard.as_ref().ok_or("Not configured")?.clone()
     };
 
-    client.upload_folder(key).await.map_err(|e| e.to_string())?;
+    run_quick_operation("Creating folder", client.upload_folder(key)).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn validate_encrypted_upload(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+) -> Result<(), String> {
+    let client = {
+        let guard = state.lock().await;
+        guard.as_ref().ok_or("Not configured")?.clone()
+    };
+    let config = Config::load().map_err(|e| e.to_string())?;
+    let password = config
+        .credentials
+        .encryption_passphrase_for_upload()
+        .map_err(|e| e.to_string())?;
+
+    client
+        .validate_encryption_passphrase(password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_saved_secret_access_key(
+    state: State<'_, Arc<Mutex<Option<S3Client>>>>,
+) -> Result<(), String> {
+    Config::remove_saved_secret_access_key().map_err(|e| e.to_string())?;
+
+    let mut guard = state.lock().await;
+    if let Some(client) = guard.as_ref().cloned() {
+        client.retire().await;
+    }
+    *guard = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clear_saved_encryption_passphrase() -> Result<(), String> {
+    Config::remove_saved_encryption_passphrase().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -166,15 +230,20 @@ pub async fn upload_path(
         None
     };
 
-    if encrypted {
+    if let Some(config) = config.as_ref() {
         password = Some(
             config
-                .as_ref()
-                .ok_or(String::from("NO CONFIG OK??"))?
                 .credentials
-                .encryption_passphrase
-                .as_bytes(),
+                .encryption_passphrase_for_upload()
+                .map_err(|e| e.to_string())?,
         );
+    }
+
+    if let Some(password) = password {
+        client
+            .validate_encryption_passphrase(password)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
@@ -269,116 +338,141 @@ pub async fn download_file(
     };
 
     let download_dir = dirs::download_dir().ok_or("No download dir")?;
-    let file = client.download_file(key).await.map_err(|e| e.to_string())?;
+    let (resolved_filename, encryption_key) = if encrypted {
+        let config = config::Config::load().map_err(|e| e.to_string())?;
+        let metadata = client
+            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        let encrypted_filename = key.rsplit_once("/").map(|(_, right)| right).unwrap_or(key);
+        let resolved_filename =
+            metadata::get_filename(&metadata, encrypted_filename).map_err(|e| e.to_string())?;
+        let encryption_key = derive_key(
+            config.credentials.encryption_passphrase.as_bytes(),
+            resolved_filename.as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
 
+        (resolved_filename, Some(encryption_key))
+    } else {
+        (filename.to_string(), None)
+    };
+    let resolved_filename = validate_download_filename(&resolved_filename)?.to_string();
+
+    let file = client.download_file(key).await.map_err(|e| e.to_string())?;
     let (lower, upper) = file.size_hint();
     let total_bytes = upper.unwrap_or(lower);
-
     let mut body = file.into_async_read();
 
-    let file_path = get_unique_path(&download_dir, filename);
+    let file_path = get_unique_path(&download_dir, &resolved_filename);
     let temp_path =
         file_path.with_extension(match file_path.extension().and_then(|e| e.to_str()) {
             Some(ext) => format!("{ext}.crabdroptemp"),
             None => String::from("crabdroptemp"),
         });
+
+    let file = tokio::fs::File::create(&temp_path)
+        .await
+        .map_err(|e| e.to_string())?;
     app.emit(
         "download_start",
         serde_json::json!({
-            "filename": filename,
+            "filename": resolved_filename,
             "totalBytes": total_bytes,
         }),
     )
     .ok();
 
-    let std_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
-    let mut writer = tokio::io::BufWriter::new(tokio::fs::File::from_std(std_file));
+    let download_result: Result<u64, String> = async {
+        let mut writer = tokio::io::BufWriter::new(file);
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut downloaded: u64 = 0;
+        let mut buf_decrypt: Vec<u8> = Vec::new();
 
-    let mut buffer = vec![0u8; 1024 * 1024];
-    let mut downloaded: u64 = 0;
-    let mut buf_decrypt: Vec<u8> = Vec::new();
+        loop {
+            let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
 
-    let config = config::Config::load().map_err(|e| e.to_string())?;
-    let metadata = client
-        .get_metadata(config.credentials.encryption_passphrase.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
+            if !encrypted {
+                writer
+                    .write_all(&buffer[..n])
+                    .await
+                    .map_err(|e| e.to_string())?;
+                downloaded += n as u64;
+                app.emit(
+                    "download_progress",
+                    serde_json::json!({
+                        "filename": resolved_filename,
+                        "downloadedBytes": downloaded,
+                        "totalBytes": total_bytes,
+                    }),
+                )
+                .ok();
+                continue;
+            }
 
-    let mut filename = if key.contains("/") {
-        key.rsplit_once("/")
-            .map(|(_, right)| right)
-            .ok_or("Bad thing")?
-            .to_string()
-    } else {
-        key.to_string()
-    };
+            buf_decrypt.extend(&buffer[..n]);
 
-    if encrypted {
-        filename = metadata::get_filename(&metadata, &filename).map_err(|e| e.to_string())?;
-    }
-
-    let enc_key = derive_key(
-        config.credentials.encryption_passphrase.as_bytes(),
-        filename.as_bytes(),
-    )
-    .map_err(|e| e.to_string())?;
-    loop {
-        let n = body.read(&mut buffer).await.map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-
-        if !encrypted {
-            writer
-                .write_all(&buffer[..n])
-                .await
+            while buf_decrypt.len() >= CHUNK_TOTAL {
+                let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
+                decrypt_chunk(
+                    &mut chunk,
+                    encryption_key
+                        .as_ref()
+                        .ok_or("Encryption key is unavailable")?,
+                )
                 .map_err(|e| e.to_string())?;
+                writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            }
             downloaded += n as u64;
+
             app.emit(
                 "download_progress",
                 serde_json::json!({
-                    "filename": filename,
+                    "filename": resolved_filename,
                     "downloadedBytes": downloaded,
                     "totalBytes": total_bytes,
                 }),
             )
             .ok();
-            continue;
         }
 
-        buf_decrypt.extend(&buffer[..n]);
-
-        while buf_decrypt.len() >= CHUNK_TOTAL {
-            let mut chunk = buf_decrypt.drain(..CHUNK_TOTAL).collect::<Vec<u8>>();
-            decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
+        if !buf_decrypt.is_empty() {
+            let mut chunk = buf_decrypt;
+            decrypt_chunk(
+                &mut chunk,
+                encryption_key
+                    .as_ref()
+                    .ok_or("Encryption key is unavailable")?,
+            )
+            .map_err(|e| e.to_string())?;
             writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
         }
-        downloaded += n as u64;
 
-        app.emit(
-            "download_progress",
-            serde_json::json!({
-                "filename": filename,
-                "downloadedBytes": downloaded,
-                "totalBytes": total_bytes,
-            }),
-        )
-        .ok();
+        writer.flush().await.map_err(|e| e.to_string())?;
+        Ok(downloaded)
+    }
+    .await;
+
+    let downloaded = match download_result {
+        Ok(downloaded) => downloaded,
+        Err(error) => {
+            tokio::fs::remove_file(&temp_path).await.ok();
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = tokio::fs::rename(&temp_path, &file_path).await {
+        tokio::fs::remove_file(&temp_path).await.ok();
+        return Err(error.to_string());
     }
 
-    if !buf_decrypt.is_empty() {
-        let mut chunk = buf_decrypt;
-        decrypt_chunk(&mut chunk, &enc_key).map_err(|e| e.to_string())?;
-        writer.write_all(&chunk).await.map_err(|e| e.to_string())?;
-    }
-
-    writer.flush().await.map_err(|e| e.to_string())?;
-
-    std::fs::rename(&temp_path, &file_path).map_err(|e| e.to_string())?;
     app.emit(
         "download_complete",
         serde_json::json!({
-            "filename": filename,
+            "filename": resolved_filename,
             "totalBytes": downloaded,
         }),
     )
@@ -391,7 +485,33 @@ pub async fn delete_file(
     state: State<'_, Arc<Mutex<Option<S3Client>>>>,
     key: &str,
     is_folder: bool,
+    allow_metadata_delete: Option<bool>,
 ) -> Result<(), String> {
+    let is_metadata = types::is_crabdrop_metadata_key(key);
+    if is_metadata && allow_metadata_delete != Some(true) {
+        return Err("Deleting Crabdrop metadata requires explicit confirmation.".to_string());
+    }
+    if is_metadata && is_folder {
+        return Err("Crabdrop metadata must be deleted as a single file.".to_string());
+    }
+
+    if is_metadata {
+        let client = {
+            let guard = state.lock().await;
+            guard.as_ref().ok_or("Not configured")?.clone()
+        };
+        run_quick_operation("Deleting metadata", client.delete_metadata()).await?;
+
+        let mut guard = state.lock().await;
+        if guard
+            .as_ref()
+            .is_some_and(|current| current.shares_connection_state(&client))
+        {
+            *guard = None;
+        }
+        return Ok(());
+    }
+
     let client = {
         let guard = state.lock().await;
         guard.as_ref().ok_or("Not configured")?.clone()
@@ -431,4 +551,46 @@ pub async fn has_encrypted_password() -> Result<bool, String> {
     let config = Config::load().map_err(|e| e.to_string())?;
 
     Ok(config.encryption_pass_exists())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_download_filename;
+
+    #[test]
+    fn download_filenames_must_stay_inside_the_download_directory() {
+        assert_eq!(
+            validate_download_filename("report.pdf").unwrap(),
+            "report.pdf"
+        );
+        assert_eq!(
+            validate_download_filename("résumé.pdf").unwrap(),
+            "résumé.pdf"
+        );
+
+        for unsafe_name in [
+            "",
+            ".",
+            "..",
+            "../report.pdf",
+            "folder/report.pdf",
+            r"..\report.pdf",
+            "report.pdf:payload",
+            "CON",
+            "con.txt",
+            "PRN.",
+            "NUL .txt",
+            "COM1",
+            "lpt9.log",
+            "report.",
+            "report ",
+            "bad?.txt",
+            "control\u{001f}.txt",
+        ] {
+            assert_eq!(
+                validate_download_filename(unsafe_name).unwrap_err(),
+                "Storage metadata returned an unsafe download filename."
+            );
+        }
+    }
 }

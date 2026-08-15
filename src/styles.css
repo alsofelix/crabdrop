@@ -85,14 +85,57 @@ body {
     color: #666;
 }
 
+.field-warning {
+    display: block;
+    margin-top: 6px;
+    color: #ffb347;
+    font-size: 0.8em;
+}
+
+.input-with-clear {
+    position: relative;
+}
+
+.input-with-clear input {
+    padding-right: 42px;
+}
+
+.input-clear {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #ccc;
+    font-size: 1.2em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.input-clear:hover,
+.input-clear:focus-visible {
+    background: transparent;
+    color: #ff6b35;
+}
+
+.input-clear:focus-visible {
+    outline: 2px solid #ffb347;
+    outline-offset: 2px;
+}
+
 .error {
-    background: rgba(255, 100, 100, 0.1);
-    border: 1px solid #ff6464;
     color: #ff6464;
-    padding: 12px;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    font-size: 0.9em;
+    margin-top: 12px;
+    font-size: 0.8em;
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: center;
+    overflow-wrap: anywhere;
 }
 
 #btn-connect {
@@ -135,12 +178,15 @@ header h1 {
     margin-bottom: 15px;
 }
 
-.toolbar button {
+.toolbar button,
+#sort-select {
     padding: 8px 16px;
     background: #3a3a3a;
     border: none;
     border-radius: 6px;
     color: #fff;
+    font-family: inherit;
+    font-size: 0.8rem;
     cursor: pointer;
 }
 
@@ -178,12 +224,6 @@ header h1 {
 
 #sort-select {
     padding: 8px 10px;
-    background: #3a3a3a;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.85em;
-    cursor: pointer;
     color-scheme: dark;
 }
 
@@ -228,11 +268,21 @@ header h1 {
     border-color: #ff6b35;
 }
 
-.file-list {
+.explorer-panel {
     background: #2a2a2a;
     border-radius: 6px;
+}
+
+.file-list {
+    background: transparent;
+    border-radius: 0;
     min-height: 300px;
-    margin-bottom: 15px;
+    margin-bottom: 0;
+}
+
+.file-list:focus-visible {
+    outline: 1px solid #ff6b35;
+    outline-offset: 2px;
 }
 
 .file-list-empty {
@@ -268,17 +318,26 @@ header h1 {
 }
 
 .file-item .icon {
+    flex-shrink: 0;
     margin-right: 12px;
     font-size: 1.2em;
 }
 
 .file-item .name {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .file-item .size {
+    flex: 0 0 5.5em;
     color: #888;
     font-size: 0.9em;
+    text-align: right;
+    white-space: nowrap;
 }
 
 .drag-overlay {
@@ -340,6 +399,7 @@ header h1 {
     padding: 24px;
     border-radius: 8px;
     min-width: 300px;
+    max-width: calc(100vw - 40px);
 }
 
 .modal-content h3 {
@@ -361,6 +421,126 @@ header h1 {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+}
+
+#delete-confirm-modal .modal-buttons {
+    margin-top: 24px;
+}
+
+#delete-confirm-modal .modal-content,
+#encrypt-confirm-modal .modal-content,
+.share-modal-content,
+.credential-removal-content,
+.encrypted-copy-download-content,
+.download-all-content {
+    width: min(var(--modal-width), calc(100vw - 40px));
+}
+
+#delete-confirm-modal .modal-content {
+    --modal-width: 560px;
+}
+
+#encrypt-confirm-modal .modal-content,
+.share-modal-content,
+.credential-removal-content {
+    --modal-width: 440px;
+}
+
+.encrypted-copy-download-content,
+.download-all-content {
+    --modal-width: 480px;
+}
+
+#delete-confirm-message {
+    display: flex;
+    align-items: baseline;
+}
+
+.delete-confirm-prefix,
+.delete-confirm-suffix {
+    flex: 0 0 auto;
+}
+
+.delete-confirm-filename {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.delete-confirm-filename.is-truncated + .delete-confirm-suffix {
+    margin-left: -0.4em;
+}
+
+.delete-confirm-warning {
+    color: #ffb347;
+    line-height: 1.45;
+    margin: 16px 0 0;
+}
+
+.credential-removal-content p {
+    color: #ccc;
+    line-height: 1.45;
+}
+
+.credential-removal-content .modal-buttons {
+    margin-top: 24px;
+}
+
+.encrypted-copy-download-content > p,
+.download-all-content > p {
+    color: #ccc;
+    line-height: 1.45;
+}
+
+.encrypted-copy-download-content > p.modal-filename {
+    margin-top: 14px;
+    overflow: hidden;
+    color: #888;
+    font-size: 0.85rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.encrypted-copy-download-content .modal-buttons {
+    margin-top: 24px;
+}
+
+.download-all-content > p.download-all-warning {
+    margin-top: 12px;
+    color: #ffb347;
+    font-size: 0.85rem;
+}
+
+.download-all-content .modal-buttons {
+    margin-top: 24px;
+}
+
+#encrypted-copy-download-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#download-all-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#encrypted-copy-download-confirm,
+#download-all-confirm {
+    background: #ff6b35;
+    color: #fff;
+}
+
+#credential-removal-cancel {
+    background: #3a3a3a;
+    color: #fff;
+}
+
+#credential-removal-confirm:disabled {
+    background: #74423f;
+    cursor: not-allowed;
 }
 
 .modal-buttons button {
@@ -453,6 +633,7 @@ header h1 {
 
 .upload-name {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -582,6 +763,11 @@ header h1 {
     align-items: center;
     gap: 10px;
     margin-bottom: 16px;
+}
+
+#download-name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -609,6 +795,10 @@ header h1 {
     z-index: 1000;
 }
 
+#background-context-menu {
+    min-width: 200px;
+}
+
 .context-menu button {
     display: block;
     width: 100%;
@@ -626,6 +816,15 @@ header h1 {
     background: #3a3a3a;
 }
 
+.context-menu button:disabled {
+    color: #666;
+    cursor: default;
+}
+
+.context-menu button:disabled:hover {
+    background: none;
+}
+
 .context-menu button#ctx-delete:hover {
     background: rgba(255, 100, 100, 0.2);
     color: #ff6464;
@@ -633,14 +832,16 @@ header h1 {
 
 /* Share Modal */
 .share-modal-content {
-    min-width: 360px;
+    min-width: min(360px, calc(100vw - 40px));
 }
 
 .share-filename {
     color: #888;
     font-size: 0.9em;
     margin-bottom: 16px;
-    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .share-modal-content select {
@@ -740,6 +941,18 @@ header h1 {
     cursor: pointer;
 }
 
+.encrypt-toggle-row label.disabled {
+    cursor: not-allowed;
+    color: #666;
+}
+
+.encrypt-unavailable {
+    display: block;
+    margin: -8px 0 16px;
+    color: #ffb347;
+    font-size: 0.8em;
+}
+
 #encrypt-confirm-count {
     color: #888;
     font-size: 0.9em;
@@ -757,25 +970,79 @@ header h1 {
 }
 
 .encrypt-file-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    display: block;
+    overflow: hidden;
     padding: 6px 10px;
     background: #1a1a1a;
     border-radius: 4px;
     margin-bottom: 4px;
     font-size: 0.85em;
     color: #ccc;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .encrypt-file-item:last-child {
     margin-bottom: 0;
 }
 
+.file-item .lock-icon,
+.file-item .likely-encrypted-icon {
+    display: inline-flex;
+    flex: 0 0 1.2rem;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
 .file-item .lock-icon {
-    margin-left: 6px;
     color: #ff6b35;
     font-size: 0.8em;
+}
+
+.file-item .likely-encrypted-icon {
+    position: relative;
+    color: #ffb347;
+    font-size: 0.9em;
+    cursor: help;
+}
+
+.file-item .likely-encrypted-tooltip {
+    position: absolute;
+    right: -6px;
+    bottom: calc(100% + 8px);
+    z-index: 10;
+    width: max-content;
+    max-width: 250px;
+    padding: 7px 9px;
+    border: 1px solid #555;
+    border-radius: 5px;
+    background: #1a1a1a;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    color: #ddd;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(3px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.file-item .likely-encrypted-icon:hover .likely-encrypted-tooltip,
+.file-item .likely-encrypted-icon:focus-visible .likely-encrypted-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.file-item .likely-encrypted-icon:focus-visible {
+    color: #ff6b35;
+    outline: 2px solid #ffb347;
+    outline-offset: 2px;
 }
 
 .share-encrypted-notice {
@@ -788,60 +1055,74 @@ header h1 {
     color: #ff6b35;
 }
 
-/* Alert / Toast */
-.alert-container {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 2000;
+/* Plain status text */
+.status-message-container {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    align-items: center;
+    gap: 4px;
     pointer-events: none;
 }
 
-.alert {
+.browser-status-message-container {
+    margin-top: 10px;
+    padding: 0 15px 16px;
+}
+
+.browser-status-message-container:empty {
+    display: none;
+}
+
+.global-status-message-container {
+    position: fixed;
+    bottom: 4px;
+    left: 16px;
+    right: 16px;
+    z-index: 2000;
+}
+
+.status-message {
+    font-size: 0.8em;
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: center;
+    animation: status-message-in 0.15s ease-out;
+    max-width: min(900px, calc(100vw - 32px));
+    overflow-wrap: anywhere;
     pointer-events: auto;
-    padding: 12px 16px;
-    border-radius: 8px;
-    font-size: 0.9em;
-    color: #fff;
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    animation: alert-in 0.25s ease-out;
-    max-width: 340px;
-    word-break: break-word;
+    user-select: text;
 }
 
-.alert.alert-success {
-    border-color: #4caf50;
-    background: rgba(76, 175, 80, 0.15);
-    color: #6fcf73;
-}
-
-.alert.alert-error {
-    border-color: #ff6464;
-    background: rgba(255, 100, 100, 0.15);
+.status-message-error {
     color: #ff6464;
 }
 
-.alert.alert-warning {
-    border-color: #ff6b35;
-    background: rgba(255, 107, 53, 0.15);
+.status-message-warning {
     color: #ff6b35;
 }
 
-.alert.alert-out {
-    animation: alert-out 0.2s ease-in forwards;
+.status-message-out {
+    animation: status-message-out 0.15s ease-in forwards;
 }
 
-@keyframes alert-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
+@keyframes status-message-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
 
-@keyframes alert-out {
-    from { opacity: 1; transform: translateX(0); }
-    to   { opacity: 0; transform: translateX(20px); }
+@keyframes status-message-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .file-item .likely-encrypted-tooltip {
+        transform: none;
+        transition: none;
+    }
+
+    .status-message,
+    .status-message-out {
+        animation: none;
+    }
 }

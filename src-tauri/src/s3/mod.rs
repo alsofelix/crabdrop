@@ -1,17 +1,24 @@
 use crate::config::Config;
 use crate::crypto::{decrypt, encrypt};
-use crate::metadata;
-use crate::types::File;
+use crate::metadata::{self, CRABDROP_METADATA_FILE_NAME};
+use crate::operation::friendly_sdk_error;
+use crate::types::{
+    is_crabdrop_metadata_key, is_folder_marker_key, is_likely_encrypted_name, File,
+};
 use anyhow::anyhow;
 use aws_sdk_s3;
 use aws_sdk_s3::config::{Builder, Credentials, Region};
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use std::io::{Read, Seek};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{Mutex, Semaphore};
@@ -22,13 +29,20 @@ const THRESHOLD: u64 = 100 * 1024 * 1024;
 const CHUNK_SIZE: u64 = 50 * 1024 * 1024;
 const CHUNKS_AT_A_TIME: usize = 6;
 
-const CRABDROP_METADATA_FILE_NAME: &str = "CRABDROP_METADATA_DO_NOT_DELETE";
+fn final_non_empty_key_component(key: &str) -> &str {
+    key.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|component| !component.is_empty())
+        .unwrap_or(key)
+}
 
 #[derive(Clone)]
 pub struct S3Client {
     client: Client,
     bucket_name: String,
     meta_lock: Arc<Mutex<()>>,
+    metadata_writes_closed: Arc<AtomicBool>,
 }
 
 impl S3Client {
@@ -40,7 +54,28 @@ impl S3Client {
             client,
             bucket_name: config.storage.bucket.clone(),
             meta_lock: Arc::new(Mutex::new(())),
+            metadata_writes_closed: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    pub async fn test_connection(&self) -> anyhow::Result<()> {
+        self.client
+            .list_objects_v2()
+            .bucket(&self.bucket_name)
+            .max_keys(1)
+            .send()
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("checking the connection", &error)))?;
+        Ok(())
+    }
+
+    pub fn shares_connection_state(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.metadata_writes_closed, &other.metadata_writes_closed)
+    }
+
+    pub async fn retire(&self) {
+        let _guard = self.meta_lock.lock().await;
+        self.metadata_writes_closed.store(true, Ordering::Release);
     }
 
     pub async fn list_dir(&self, prefix: &str) -> anyhow::Result<Vec<File>> {
@@ -49,7 +84,7 @@ impl S3Client {
 
         let config = Config::load()?;
         let metadata = self
-            .get_metadata(config.credentials.encryption_passphrase.as_bytes())
+            .get_metadata_for_listing(config.credentials.encryption_passphrase.as_bytes())
             .await?;
 
         loop {
@@ -64,7 +99,10 @@ impl S3Client {
                 request = request.continuation_token(token);
             }
 
-            let objs = request.send().await?;
+            let objs = request
+                .send()
+                .await
+                .map_err(|error| anyhow!(friendly_sdk_error("listing files", &error)))?;
 
             for file in objs.contents() {
                 let key = file
@@ -72,10 +110,29 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                let raw_name = key.split("/").last().unwrap_or(&key).to_string();
-                let encrypted = metadata::is_in_meta(&metadata, &raw_name)?;
+                if is_folder_marker_key(&key) && file.size() == Some(0) {
+                    continue;
+                }
+
+                let raw_name = final_non_empty_key_component(&key).to_string();
+                let is_metadata = is_crabdrop_metadata_key(&key);
+                let encrypted = if is_metadata {
+                    false
+                } else {
+                    match metadata.as_deref() {
+                        Some(metadata) => metadata::is_in_meta(metadata, &raw_name)?,
+                        None => false,
+                    }
+                };
+                let likely_encrypted =
+                    !is_metadata && is_likely_encrypted_name(&raw_name, encrypted);
                 let name = if encrypted {
-                    let name_ = metadata::get_filename(&metadata, &raw_name);
+                    let name_ = metadata::get_filename(
+                        metadata
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("Encryption metadata is unavailable"))?,
+                        &raw_name,
+                    );
                     let raw_name =
                         name_.unwrap_or_else(|_| String::from("encryption-passphrase-wrong"));
 
@@ -84,10 +141,6 @@ impl S3Client {
                     raw_name
                 };
 
-                if name == CRABDROP_METADATA_FILE_NAME {
-                    continue;
-                }
-
                 let f = File {
                     name,
                     key,
@@ -95,6 +148,8 @@ impl S3Client {
                     is_folder: false,
                     last_modified: file.last_modified().map(|d| d.secs()),
                     encrypted,
+                    likely_encrypted,
+                    is_metadata,
                 };
                 vector.push(f)
             }
@@ -105,26 +160,22 @@ impl S3Client {
                     .ok_or(anyhow::anyhow!("Expected a key"))?
                     .to_string();
 
-                let encrypted_step = key
-                    .split("/")
-                    .last()
-                    .ok_or(anyhow::anyhow!("Error on parsing"))?
-                    .to_string();
+                let encrypted_step = final_non_empty_key_component(&key).to_string();
 
-                let encrypted = metadata::is_in_meta(&metadata, &encrypted_step)?;
+                let encrypted = match metadata.as_deref() {
+                    Some(metadata) => metadata::is_in_meta(metadata, &encrypted_step)?,
+                    None => false,
+                };
 
                 let f = File {
-                    name: key
-                        .trim_end_matches("/")
-                        .split("/")
-                        .last()
-                        .unwrap_or(&key)
-                        .to_string(),
+                    name: final_non_empty_key_component(&key).to_string(),
                     key,
                     size: None,
                     is_folder: true,
                     last_modified: None,
                     encrypted,
+                    likely_encrypted: false,
+                    is_metadata: false,
                 };
 
                 vector.push(f);
@@ -227,7 +278,8 @@ impl S3Client {
             .key(&s3_key)
             .body(bytestream)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("uploading a file", &error)))?;
 
         if encrypted {
             if let Err(e) = self
@@ -249,7 +301,7 @@ impl S3Client {
     }
 
     pub async fn get_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
-        match self.get_file(CRABDROP_METADATA_FILE_NAME).await {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
             Some(mut metadata) => {
                 decrypt(
                     &mut metadata,
@@ -259,21 +311,56 @@ impl S3Client {
 
                 Ok(metadata)
             }
-            None => self.create_metadata(password, None).await,
+            None => Err(anyhow!(
+                "Encryption metadata is missing. Restore a metadata backup before downloading encrypted files."
+            )),
         }
     }
 
-    pub async fn re_encrypt_metadata(
-        &self,
-        password: &[u8],
-        old_password: &[u8],
-    ) -> anyhow::Result<()> {
-        let meta = self.get_metadata(old_password).await?; // error should not happen
-        self.create_metadata(password, Some(&meta)).await?;
-        Ok(())
+    async fn get_or_create_metadata(&self, password: &[u8]) -> anyhow::Result<Vec<u8>> {
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
+            Some(mut metadata) => {
+                decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )?;
+
+                Ok(metadata)
+            }
+            None => self.create_metadata_locked(password, None).await,
+        }
     }
 
-    pub async fn create_metadata(
+    pub async fn validate_encryption_passphrase(&self, password: &[u8]) -> anyhow::Result<()> {
+        let encrypted_metadata = self.get_file(CRABDROP_METADATA_FILE_NAME).await?;
+        metadata::validate_encryption_passphrase(encrypted_metadata.as_deref(), password)
+    }
+
+    async fn get_metadata_for_listing(&self, password: &[u8]) -> anyhow::Result<Option<Vec<u8>>> {
+        if password.is_empty() {
+            return Ok(None);
+        }
+
+        match self.get_file(CRABDROP_METADATA_FILE_NAME).await? {
+            Some(mut metadata) => {
+                if decrypt(
+                    &mut metadata,
+                    password,
+                    CRABDROP_METADATA_FILE_NAME.as_bytes(),
+                )
+                .is_err()
+                {
+                    return Ok(None);
+                }
+
+                Ok(Some(metadata))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn create_metadata_locked(
         &self,
         password: &[u8],
         data: Option<&[u8]>,
@@ -301,43 +388,72 @@ impl S3Client {
             .key(CRABDROP_METADATA_FILE_NAME)
             .body(bytestream)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("saving metadata", &error)))?;
 
         Ok(dummy_data)
     }
 
-    pub async fn meta_file_exists(&self) -> bool {
-        let meta = self.get_file(CRABDROP_METADATA_FILE_NAME).await;
-
-        match meta {
-            Some(_) => true,
-            None => false,
-        }
-    }
-
     async fn insert_meta(&self, password: &[u8], uuid: &str, filename: &str) -> anyhow::Result<()> {
         let _guard = self.meta_lock.lock().await;
-        let metadata = self.get_metadata(password).await?;
+        if self.metadata_writes_closed.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Connection changed or Crabdrop metadata was deleted before the filename map could be updated."
+            ));
+        }
+        let metadata = self.get_or_create_metadata(password).await?;
 
         let new_data = metadata::put_filename(&metadata, &uuid, filename)?;
 
-        self.create_metadata(password, Some(&new_data)).await?;
+        self.create_metadata_locked(password, Some(&new_data))
+            .await?;
         Ok(())
     }
 
-    async fn get_file(&self, key: &str) -> Option<Vec<u8>> {
-        let file = self
+    pub async fn delete_metadata(&self) -> anyhow::Result<()> {
+        let _guard = self.meta_lock.lock().await;
+        if self.metadata_writes_closed.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Connection changed before Crabdrop metadata could be deleted."
+            ));
+        }
+        self.delete_file(CRABDROP_METADATA_FILE_NAME).await?;
+        self.metadata_writes_closed.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    async fn get_file(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let file = match self
             .client
             .get_object()
             .bucket(&self.bucket_name)
             .key(key)
             .send()
             .await
-            .ok()?;
+        {
+            Ok(file) => file,
+            Err(error)
+                if matches!(error.code(), Some("NoSuchKey" | "NotFound" | "404"))
+                    || error
+                        .raw_response()
+                        .map(|response| response.status().as_u16() == 404)
+                        .unwrap_or(false) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => {
+                return Err(anyhow!(friendly_sdk_error("reading metadata", &error)));
+            }
+        };
 
-        let res = file.body.collect().await.ok()?.into_bytes();
+        let res = file
+            .body
+            .collect()
+            .await
+            .map_err(|error| anyhow!("Could not read metadata: {error}"))?
+            .into_bytes();
 
-        Some(res.to_vec())
+        Ok(Some(res.to_vec()))
     }
 
     pub async fn delete_file(&self, key: &str) -> anyhow::Result<()> {
@@ -346,11 +462,18 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(key)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("deleting a file", &error)))?;
         Ok(())
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<()> {
+        if CRABDROP_METADATA_FILE_NAME.starts_with(prefix) {
+            return Err(anyhow!(
+                "Crabdrop metadata must be deleted as a single file."
+            ));
+        }
+
         let mut continuation_token: Option<String> = None;
 
         loop {
@@ -364,7 +487,9 @@ impl S3Client {
                 request = request.continuation_token(token);
             }
 
-            let response = request.send().await?;
+            let response = request.send().await.map_err(|error| {
+                anyhow!(friendly_sdk_error("listing a folder for deletion", &error))
+            })?;
 
             let keys: Vec<String> = response
                 .contents()
@@ -383,7 +508,8 @@ impl S3Client {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 if !delete_objects.is_empty() {
-                    self.client
+                    let result = self
+                        .client
                         .delete_objects()
                         .bucket(&self.bucket_name)
                         .delete(
@@ -392,7 +518,28 @@ impl S3Client {
                                 .build()?,
                         )
                         .send()
-                        .await?;
+                        .await
+                        .map_err(|error| {
+                            anyhow!(friendly_sdk_error("deleting a folder", &error))
+                        })?;
+
+                    if !result.errors().is_empty() {
+                        let failures = result
+                            .errors()
+                            .iter()
+                            .map(|error| {
+                                let key = error.key().unwrap_or("<unknown key>");
+                                match error.code() {
+                                    Some(code) => format!("{key} ({code})"),
+                                    None => key.to_string(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(anyhow!(
+                            "Storage service failed to delete folder objects: {failures}"
+                        ));
+                    }
                 }
             }
 
@@ -423,7 +570,8 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(key)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("downloading a file", &error)))?;
 
         Ok(file.body)
     }
@@ -463,7 +611,8 @@ impl S3Client {
             .bucket(&self.bucket_name)
             .key(&key_)
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("starting an upload", &error)))?;
 
         let upload_id = con
             .upload_id()
@@ -574,7 +723,7 @@ impl S3Client {
                     );
                 }
                 Err(e) => {
-                    upload_error = Some(e.into());
+                    upload_error = Some(anyhow!(friendly_sdk_error("uploading a file part", &e)));
                     break;
                 }
             }
@@ -606,7 +755,8 @@ impl S3Client {
                     .build(),
             )
             .send()
-            .await?;
+            .await
+            .map_err(|error| anyhow!(friendly_sdk_error("finishing an upload", &error)))?;
 
         if encrypted {
             if let Err(e) = self
@@ -633,6 +783,10 @@ impl S3Client {
     }
 
     pub async fn gen_presigned_url(&self, key: &str, expiry_secs: u64) -> anyhow::Result<String> {
+        if is_crabdrop_metadata_key(key) {
+            return Err(anyhow!("Crabdrop metadata cannot be shared."));
+        }
+
         let config = PresigningConfig::expires_in(Duration::from_secs(expiry_secs))?;
 
         let url = self
@@ -668,4 +822,72 @@ fn get_credentials(config: &Config) -> anyhow::Result<aws_sdk_s3::config::Config
     }
 
     Ok(configuration.build())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{CredentialsConfig, StorageConfig};
+
+    fn test_client() -> S3Client {
+        S3Client::new(&Config {
+            storage: StorageConfig {
+                endpoint: "http://localhost:9000".to_string(),
+                bucket: "test-bucket".to_string(),
+                region: "us-east-1".to_string(),
+            },
+            credentials: CredentialsConfig {
+                access_key_id: "test-access-key".to_string(),
+                secret_access_key: "test-secret-key".to_string(),
+                encryption_passphrase: "test-passphrase".to_string(),
+            },
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn slash_suffixed_keys_use_the_final_non_empty_component() {
+        assert_eq!(
+            final_non_empty_key_component("parent/encrypted-folder/"),
+            "encrypted-folder"
+        );
+        assert_eq!(
+            final_non_empty_key_component("parent/report.pdf"),
+            "report.pdf"
+        );
+    }
+
+    #[tokio::test]
+    async fn retiring_a_client_closes_metadata_writes_for_all_clones() {
+        let client = test_client();
+        let clone = client.clone();
+
+        client.retire().await;
+
+        assert!(clone.metadata_writes_closed.load(Ordering::Acquire));
+        assert_eq!(
+            clone.delete_metadata().await.unwrap_err().to_string(),
+            "Connection changed before Crabdrop metadata could be deleted."
+        );
+    }
+
+    #[tokio::test]
+    async fn broad_prefix_deletion_cannot_remove_metadata() {
+        let error = test_client().delete_prefix("").await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Crabdrop metadata must be deleted as a single file."
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_cannot_be_shared() {
+        let error = test_client()
+            .gen_presigned_url(CRABDROP_METADATA_FILE_NAME, 60)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "Crabdrop metadata cannot be shared.");
+    }
 }
