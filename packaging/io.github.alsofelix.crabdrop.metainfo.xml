@@ -50,6 +50,15 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.0" date="2026-08-15">
+      <description>
+        <ul>
+          <li>Improved S3 connection reliability, credential recovery, and timeout handling.</li>
+          <li>Added safer encrypted uploads/downloads with stronger metadata protection.</li>
+          <li>Enhanced file browsing with folder actions, batch downloads, and safer deletions.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.3" date="2026-05-31">
       <description>
         <ul>

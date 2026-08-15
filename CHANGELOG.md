@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.0 (2026-08-15)
+
+- Improved S3 connection reliability, credential recovery, and timeout handling.
+- Added safer encrypted uploads/downloads with stronger metadata protection.
+- Enhanced file browsing with folder actions, batch downloads, and safer deletions.
+
 ## v0.5.3 (2026-05-31)
 
 - Fix release issue
